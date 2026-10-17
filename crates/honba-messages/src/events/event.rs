@@ -1,0 +1,243 @@
+//! The [`Event`] enum and the [`Message`] envelope.
+
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+use crate::events::timestamp::UnixNanos;
+use crate::identifiers::{OrderId, VenueOrderId};
+use crate::market_data::{Bar, QuoteTick, TradeTick};
+use crate::orders::Order;
+use crate::validation::{deserialize_positive, finite, serialize_finite};
+
+fn last_qty<'de, D: serde::Deserializer<'de>>(d: D) -> Result<f64, D::Error> {
+    deserialize_positive("last_qty", d)
+}
+
+fn cum_qty<'de, D: serde::Deserializer<'de>>(d: D) -> Result<f64, D::Error> {
+    deserialize_positive("cum_qty", d)
+}
+
+fn last_px<'de, D: serde::Deserializer<'de>>(d: D) -> Result<f64, D::Error> {
+    let value: f64 = Deserialize::deserialize(d)?;
+    finite("last_px", value).map_err(serde::de::Error::custom)
+}
+
+/// Version of the JSON wire contract carried by every [`Message`].
+///
+/// Bump it on any breaking change to the serialized form of a message type,
+/// together with the golden vectors in `schema/golden/` and the Python
+/// constant `honba.entities.wire.SCHEMA_VERSION` (see ADR 006).
+///
+/// History: 1 initial contract (E0-S2); 2 instrument exchange semantics; 3
+/// timestamps as `{iso, unix_nanos}` and money as integer minor units (ADR
+/// 0011, E11-S2); 4 `order_filled` means the completing fill, earlier fills are
+/// `order_partially_filled` (ADR 0019). Only the current version is read; see
+/// CHANGELOG.md.
+pub const SCHEMA_VERSION: u32 = 4;
+
+/// Any typed event that can flow through the Honba event kernel.
+///
+/// Serialized as an internally tagged JSON object: `{"type": "order_filled", ...}`.
+///
+/// ```
+/// use honba_messages::Event;
+///
+/// fn is_market_data(ev: &Event) -> bool {
+///     matches!(ev, Event::Quote(_) | Event::Trade(_) | Event::Bar(_))
+/// }
+/// ```
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum Event {
+    /// A quote (top-of-book) update.
+    Quote(QuoteTick),
+    /// A trade (last-sale) update.
+    Trade(TradeTick),
+    /// An aggregated bar.
+    Bar(Bar),
+    /// A new order that has been submitted.
+    Order(Order),
+    /// The exchange accepted an order.
+    OrderAccepted {
+        /// The client order identifier.
+        order_id: OrderId,
+        /// The venue's own id for the order, when the acknowledgement names one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        venue_order_id: Option<VenueOrderId>,
+        /// The exchange timestamp at which acceptance occurred.
+        ts_event: UnixNanos,
+    },
+    /// The exchange rejected an order.
+    OrderRejected {
+        /// The client order identifier.
+        order_id: OrderId,
+        /// A human-readable rejection reason.
+        reason: String,
+        /// The exchange timestamp at which rejection occurred.
+        ts_event: UnixNanos,
+    },
+    /// An order received a fill that left a remainder (ADR 0019).
+    OrderPartiallyFilled {
+        /// The client order identifier.
+        order_id: OrderId,
+        /// The quantity filled in this event (finite, `> 0`).
+        #[serde(serialize_with = "serialize_finite", deserialize_with = "last_qty")]
+        last_qty: f64,
+        /// The price at which this fill occurred (finite).
+        #[serde(serialize_with = "serialize_finite", deserialize_with = "last_px")]
+        last_px: f64,
+        /// The cumulative filled quantity after this fill (finite, `> 0`).
+        #[serde(serialize_with = "serialize_finite", deserialize_with = "cum_qty")]
+        cum_qty: f64,
+        /// The exchange timestamp at which the fill occurred.
+        ts_event: UnixNanos,
+    },
+    /// An order received the fill that completed it (since schema version 4;
+    /// earlier fills are [`Event::OrderPartiallyFilled`]).
+    OrderFilled {
+        /// The client order identifier.
+        order_id: OrderId,
+        /// The quantity filled in this event (finite, `> 0`).
+        #[serde(serialize_with = "serialize_finite", deserialize_with = "last_qty")]
+        last_qty: f64,
+        /// The price at which this fill occurred (finite).
+        #[serde(serialize_with = "serialize_finite", deserialize_with = "last_px")]
+        last_px: f64,
+        /// The exchange timestamp at which the fill occurred.
+        ts_event: UnixNanos,
+    },
+    /// A cancel was asked for and not yet answered (ADR 0019).
+    OrderCancelRequested {
+        /// The client order identifier.
+        order_id: OrderId,
+        /// The timestamp at which the cancel was processed.
+        ts_event: UnixNanos,
+    },
+    /// An order was cancelled.
+    OrderCancelled {
+        /// The client order identifier.
+        order_id: OrderId,
+        /// The exchange timestamp at which cancellation occurred.
+        ts_event: UnixNanos,
+    },
+    /// An order expired (time-in-force expiry, ADR 0019).
+    OrderExpired {
+        /// The client order identifier.
+        order_id: OrderId,
+        /// The exchange timestamp at which expiry occurred.
+        ts_event: UnixNanos,
+    },
+}
+
+impl Event {
+    /// Returns the timestamp at which the exchange observed this event.
+    pub fn ts_event(&self) -> UnixNanos {
+        match self {
+            Event::Quote(q) => q.ts_event(),
+            Event::Trade(t) => t.ts_event(),
+            Event::Bar(b) => b.ts_event(),
+            Event::Order(o) => o.ts_event(),
+            Event::OrderAccepted { ts_event, .. }
+            | Event::OrderRejected { ts_event, .. }
+            | Event::OrderPartiallyFilled { ts_event, .. }
+            | Event::OrderFilled { ts_event, .. }
+            | Event::OrderCancelRequested { ts_event, .. }
+            | Event::OrderCancelled { ts_event, .. }
+            | Event::OrderExpired { ts_event, .. } => *ts_event,
+        }
+    }
+
+    /// Returns `true` if this event carries market data.
+    pub fn is_market_data(&self) -> bool {
+        matches!(self, Event::Quote(_) | Event::Trade(_) | Event::Bar(_))
+    }
+}
+
+/// The envelope that carries an [`Event`] plus Honba-side metadata.
+///
+/// This is the versioned unit of the wire contract: its JSON form is
+/// `{"schema_version": 4, "event": {...}, "ts_init": {...}}`, and deserializing a
+/// message with any other `schema_version` fails. Unknown fields, in the
+/// envelope or the event, are ignored (ADR 0012 rule 1): a newer producer's
+/// additive fields never break this reader, while a reshaped wire bumps the
+/// version and is rejected.
+///
+/// ```
+/// use honba_messages::{Event, Message, UnixNanos, QuoteTick, InstrumentId, Exchange};
+///
+/// let quote = QuoteTick::new(
+///     InstrumentId::new("NIFTY50", Exchange::new("NSE")),
+///     22_000.0, 22_001.0, 50.0, 75.0,
+///     UnixNanos::from_u64(1),
+///     UnixNanos::from_u64(1),
+/// );
+/// let msg = Message::new(Event::Quote(quote), UnixNanos::from_u64(2));
+/// assert!(msg.event().is_market_data());
+/// assert_eq!(msg.schema_version(), honba_messages::SCHEMA_VERSION);
+/// ```
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Message {
+    /// Rendered as a plain `u32` in the schema, matching the JSON wire form
+    /// (the internal `SchemaVersion` unit type would otherwise emit `{}`).
+    #[schemars(with = "u32")]
+    schema_version: SchemaVersion,
+    event: Event,
+    ts_init: UnixNanos,
+}
+
+/// The `schema_version` field: always [`SCHEMA_VERSION`] once constructed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "u32", into = "u32")]
+pub(crate) struct SchemaVersion;
+
+impl TryFrom<u32> for SchemaVersion {
+    type Error = String;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        if value == SCHEMA_VERSION {
+            Ok(SchemaVersion)
+        } else {
+            Err(format!(
+                "unsupported schema_version {value}; this build reads {SCHEMA_VERSION}"
+            ))
+        }
+    }
+}
+
+impl From<SchemaVersion> for u32 {
+    fn from(_: SchemaVersion) -> Self {
+        SCHEMA_VERSION
+    }
+}
+
+impl Message {
+    /// Wraps an event with the time Honba created the envelope.
+    pub fn new(event: Event, ts_init: UnixNanos) -> Self {
+        Self {
+            schema_version: SchemaVersion,
+            event,
+            ts_init,
+        }
+    }
+
+    /// Returns the wire-contract version of this message.
+    pub fn schema_version(&self) -> u32 {
+        self.schema_version.into()
+    }
+
+    /// Returns the wrapped event.
+    pub fn event(&self) -> &Event {
+        &self.event
+    }
+
+    /// Consumes the message and returns the wrapped event.
+    pub fn into_event(self) -> Event {
+        self.event
+    }
+
+    /// Returns the time Honba created the envelope.
+    pub fn ts_init(&self) -> UnixNanos {
+        self.ts_init
+    }
+}

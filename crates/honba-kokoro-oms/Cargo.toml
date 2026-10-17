@@ -1,0 +1,10 @@
+[package]
+name = "honba-kokoro-oms"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+honba-kokoro-types.workspace = true
+thiserror.workspace = true
+uuid.workspace = true

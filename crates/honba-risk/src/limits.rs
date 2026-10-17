@@ -1,0 +1,84 @@
+//! Configurable risk limits (ADR 0018 decision 8).
+
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+use crate::RiskConfigError;
+
+/// Per-run risk limits. `None` means the rule is off; the default has no limits.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RiskLimits {
+    /// Per-order notional ceiling in major units of the account currency.
+    /// `None` = no notional rule; `Some` must be finite and `> 0`.
+    #[serde(default)]
+    pub max_notional: Option<f64>,
+    /// Orders-per-window ceiling in event time. `None` = no rate rule.
+    #[serde(default)]
+    pub order_rate: Option<OrderRateLimit>,
+    /// Maximum order quantity as a fraction of ADV.
+    /// `None` = no participation rule; `Some` must be in `(0, 1]`.
+    #[serde(default)]
+    pub max_participation: Option<f64>,
+    /// Maximum quote/feed age in milliseconds before an order is refused.
+    /// `None` = no feed staleness rule; `Some` must be `>= 1`.
+    #[serde(default)]
+    pub stale_after_ms: Option<u64>,
+    /// Market-order price collar in basis points (ADR 0018 addendum): a market order (and
+    /// the market leg of a stop) is refused when its expected execution price deviates from
+    /// the reference price by more than this. `None` = no collar; `Some` must be `>= 1`.
+    #[serde(default)]
+    pub price_collar_bps: Option<u32>,
+}
+
+/// At most `max_orders` approved orders in any `window_ms` of event time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OrderRateLimit {
+    /// Maximum approved orders per window; must be `>= 1`.
+    pub max_orders: u32,
+    /// Window length in milliseconds of event time; must be `>= 1`.
+    pub window_ms: u64,
+}
+
+impl RiskLimits {
+    /// Checks every set limit: `max_notional` finite and `> 0`, `max_orders` and `window_ms`
+    /// `>= 1`, `max_participation` in `(0, 1]`. The default (no limits) is valid.
+    pub fn validate(&self) -> Result<(), RiskConfigError> {
+        if let Some(v) = self.max_notional {
+            if !(v.is_finite() && v > 0.0) {
+                return Err(RiskConfigError::InvalidMaxNotional(v));
+            }
+        }
+        if let Some(rate) = self.order_rate {
+            if rate.max_orders == 0 || rate.window_ms == 0 {
+                return Err(RiskConfigError::InvalidOrderRate);
+            }
+        }
+        if let Some(p) = self.max_participation {
+            if !(p.is_finite() && p > 0.0 && p <= 1.0) {
+                return Err(RiskConfigError::InvalidMaxParticipation(p));
+            }
+        }
+        if let Some(ms) = self.stale_after_ms {
+            if ms == 0 {
+                return Err(RiskConfigError::InvalidStaleAfter(ms));
+            }
+        }
+        if self.price_collar_bps == Some(0) {
+            return Err(RiskConfigError::InvalidPriceCollar(0));
+        }
+        Ok(())
+    }
+
+    /// The guard for a non-simulated (live) run: the limits must be valid and **both**
+    /// `max_notional` and `order_rate` must be set, else
+    /// [`RiskConfigError::LiveRunWithoutLimit`].
+    pub fn require_live(&self) -> Result<(), RiskConfigError> {
+        self.validate()?;
+        if self.max_notional.is_none() || self.order_rate.is_none() {
+            return Err(RiskConfigError::LiveRunWithoutLimit);
+        }
+        Ok(())
+    }
+}

@@ -1,0 +1,19 @@
+[package]
+name = "honba-ports"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Async trait ports for the Honba platform"
+
+[dependencies]
+honba-messages.workspace = true
+honba-entities.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }
+honba-testing.workspace = true
