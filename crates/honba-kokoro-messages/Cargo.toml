@@ -1,19 +1,16 @@
 [package]
-name = "honba-entities"
+name = "honba-kokoro-messages"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Domain entities: instruments, positions, portfolios, trades"
+description = "Core message types for the Honba trading platform"
 
 [dependencies]
-honba-messages.workspace = true
-thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 schemars = { workspace = true }
 chrono = { workspace = true }
 
 [dev-dependencies]
-serde_json.workspace = true

@@ -1,10 +1,13 @@
 [workspace]
 resolver = "2"
 members = [
-  "crates/honba-kokoro-types",
-  "crates/honba-kokoro-risk",
-  "crates/honba-kokoro-portfolio",
+  "crates/honba-kokoro-entities",
+  "crates/honba-kokoro-messages",
   "crates/honba-kokoro-oms",
+  "crates/honba-kokoro-portfolio",
+  "crates/honba-kokoro-ports",
+  "crates/honba-kokoro-risk",
+  "crates/honba-kokoro-types",
 ]
 
 [workspace.package]
@@ -17,7 +20,7 @@ repository = "https://github.com/your-org/honba-kokoro"
 [workspace.dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["float_roundtrip"] }
 thiserror = "1"
 anyhow = "1"
 tracing = "0.1"
@@ -31,8 +34,25 @@ uuid = { version = "1", features = ["v4", "serde"] }
 axum = "0.7"
 clap = { version = "4", features = ["derive"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite", "postgres", "chrono"] }
+schemars = { version = "0.8", features = ["derive"] }
 
-honba-kokoro-types     = { path = "crates/honba-kokoro-types" }
-honba-kokoro-risk      = { path = "crates/honba-kokoro-risk" }
-honba-kokoro-portfolio = { path = "crates/honba-kokoro-portfolio" }
+honba-kokoro-entities  = { path = "crates/honba-kokoro-entities" }
+honba-kokoro-messages  = { path = "crates/honba-kokoro-messages" }
 honba-kokoro-oms       = { path = "crates/honba-kokoro-oms" }
+honba-kokoro-portfolio = { path = "crates/honba-kokoro-portfolio" }
+honba-kokoro-ports     = { path = "crates/honba-kokoro-ports" }
+honba-kokoro-risk      = { path = "crates/honba-kokoro-risk" }
+honba-kokoro-types     = { path = "crates/honba-kokoro-types" }
+
+# Aliases
+honba-entities  = { package = "honba-kokoro-entities", path = "crates/honba-kokoro-entities" }
+honba-messages  = { package = "honba-kokoro-messages", path = "crates/honba-kokoro-messages" }
+honba-ports     = { package = "honba-kokoro-ports", path = "crates/honba-kokoro-ports" }
+honba-risk      = { package = "honba-kokoro-risk", path = "crates/honba-kokoro-risk" }
+honba-portfolio = { package = "honba-kokoro-portfolio", path = "crates/honba-kokoro-portfolio" }
+
+# Cross-repo dependencies
+honba-me-market = { path = "../honba-me/crates/honba-me-market" }
+honba-market    = { package = "honba-me-market", path = "../honba-me/crates/honba-me-market" }
+honba-ya-testing = { path = "../honba-ya/crates/honba-ya-testing" }
+honba-testing   = { package = "honba-ya-testing", path = "../honba-ya/crates/honba-ya-testing" }
