@@ -7,6 +7,9 @@ repository.workspace = true
 rust-version.workspace = true
 description = "Pure portfolio valuation: positions and marks to a valued snapshot (ADR 0032)"
 
+[lib]
+name = "honba_portfolio"
+
 [dependencies]
 honba-messages.workspace = true
 honba-entities.workspace = true

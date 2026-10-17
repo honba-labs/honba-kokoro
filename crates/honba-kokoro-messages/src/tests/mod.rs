@@ -1,5 +1,6 @@
 //! Unit tests for this crate, one file per area.
 
+mod api;
 mod bar;
 mod endpoints;
 mod error_taxonomy;

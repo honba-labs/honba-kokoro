@@ -7,6 +7,9 @@ repository.workspace = true
 rust-version.workspace = true
 description = "Domain entities: instruments, positions, portfolios, trades"
 
+[lib]
+name = "honba_entities"
+
 [dependencies]
 honba-messages.workspace = true
 thiserror.workspace = true

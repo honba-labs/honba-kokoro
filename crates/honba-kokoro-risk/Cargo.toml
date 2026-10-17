@@ -7,6 +7,9 @@ repository.workspace = true
 rust-version.workspace = true
 description = "Pure pre-trade risk stage for Honba (ADR 0018)"
 
+[lib]
+name = "honba_risk"
+
 [dependencies]
 honba-messages.workspace = true
 honba-entities.workspace = true
