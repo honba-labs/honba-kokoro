@@ -124,8 +124,8 @@ impl JsonSchema for UnixNanos {
         "UnixNanos".to_string()
     }
 
-    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-        UnixNanosJson::json_schema(gen)
+    fn json_schema(r#gen: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
+        UnixNanosJson::json_schema(r#gen)
     }
 
     fn is_referenceable() -> bool {

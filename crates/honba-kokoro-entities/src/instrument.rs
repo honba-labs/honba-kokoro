@@ -222,7 +222,7 @@ impl JsonSchema for Money {
         "Money".to_string()
     }
 
-    fn json_schema(_generator: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    fn json_schema(_generator: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
         schemars::schema::Schema::Object(schemars::schema::SchemaObject {
             instance_type: Some(schemars::schema::InstanceType::Object.into()),
             object: Some(Box::new(schemars::schema::ObjectValidation {
