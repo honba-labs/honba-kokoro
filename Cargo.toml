@@ -56,3 +56,4 @@ honba-me-market = { path = "../honba-me/crates/honba-me-market" }
 honba-market    = { package = "honba-me-market", path = "../honba-me/crates/honba-me-market" }
 honba-ya-testing = { path = "../honba-ya/crates/honba-ya-testing" }
 honba-testing   = { package = "honba-ya-testing", path = "../honba-ya/crates/honba-ya-testing" }
+sha2 = "0.10"
