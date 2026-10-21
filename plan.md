@@ -191,8 +191,15 @@ Layer 0: [honba-core] ─────────────▶ Zero-dependency
   - [ ] Implement Indian clearing calendar (handling NSE trading holidays, clearing holidays).
   - [ ] Model trade date ($T$) to settlement date ($T+1$) delivery conversions.
   - [ ] Track unsettled receivables vs free Demat holdings.
-- [ ] **4.2 Corporate Actions Handler**
-  - [ ] Implement split, bonus, dividend, and demerger adjustment algorithms for open lots.
+- [x] **4.2 Corporate Actions Handler** (COMPLETED)
+  - [x] Implement `CorporateAction` enum: Split, Bonus, Dividend, Demerger
+  - [x] Implement `adjust_for_split()` - quantity multiplies, price divides by ratio
+  - [x] Implement `adjust_for_bonus()` - quantity increases, cost basis per share decreases
+  - [x] Implement `record_dividend()` - calculates dividend income without affecting position
+  - [x] Implement `adjust_for_demerger()` - creates new position for spun-off instrument with allocated cost basis
+  - [x] Implement `apply_corporate_action()` - unified dispatcher for all action types
+  - [x] Modify `TaxSummary::from_fills()` to apply corporate actions before FIFO cost basis computation
+  - [x] Add 7 tests covering all corporate action types and edge cases
 
 ### Phase 5: Double-Entry Ledger & Statutory Costs (M4) — Week 9–10
 - [x] **5.1 Immutable Ledger** (scaffolded)
