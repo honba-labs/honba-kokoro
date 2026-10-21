@@ -4,7 +4,7 @@ use honba_entities::{Currency, Money, PortfolioMode, PortfolioSource, Position, 
 use honba_messages::{Exchange, InstrumentId, Product, UnixNanos};
 
 use crate::error::PortfolioError;
-use crate::{value, AccountState, HeldPosition, Marks, PortfolioState};
+use crate::{AccountState, HeldPosition, Marks, PortfolioState, value};
 
 /// An INR instrument on the NSE.
 fn instrument(symbol: &str) -> InstrumentId {

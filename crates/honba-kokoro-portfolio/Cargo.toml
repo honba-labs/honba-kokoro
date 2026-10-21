@@ -11,9 +11,10 @@ description = "Pure portfolio valuation: positions and marks to a valued snapsho
 name = "honba_portfolio"
 
 [dependencies]
-honba-messages.workspace = true
-honba-entities.workspace = true
+honba-core = { path = "../../../honba-core" }
+chrono = "0.4"
+serde = { version = "1", features = ["derive"] }
+uuid = "1"
+anyhow = "1"
 thiserror.workspace = true
-
-[dev-dependencies]
-serde_json.workspace = true
+rust_decimal = "1"
