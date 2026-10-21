@@ -738,6 +738,16 @@ pub fn apply_corporate_actions_to_account(
 #[derive(Debug, Clone)]
 pub struct PortfolioState {
     pub accounts: BTreeMap<String, AccountState>,
+    pub base_currency: Currency,
+}
+
+impl PortfolioState {
+    pub fn new(base_currency: Currency) -> Self {
+        Self {
+            accounts: BTreeMap::new(),
+            base_currency,
+        }
+    }
 }
 
 /// Per-account state.
@@ -1228,6 +1238,7 @@ mod tests {
         let pos = HeldPosition::new(id.clone(), PositionSide::Long, Quantity::new(Decimal::from(10)), Price::from_rupees("2000").unwrap());
         acc.positions.push(pos);
         let mut state = PortfolioState {
+            base_currency: Currency::Inr,
             accounts: [("acct1".to_string(), acc)].iter().cloned().collect(),
         };
 
@@ -1246,6 +1257,7 @@ mod tests {
         let pos = HeldPosition::new(id.clone(), PositionSide::Long, Quantity::new(Decimal::from(10)), Price::from_rupees("2000").unwrap());
         acc.positions.push(pos);
         let mut state = PortfolioState {
+            base_currency: Currency::Inr,
             accounts: [("acct1".to_string(), acc)].iter().cloned().collect(),
         };
 
@@ -1286,6 +1298,7 @@ mod tests {
         let current_date = NaiveDate::from_ymd_opt(2026, 1, 3).unwrap();
 
         let mut state = PortfolioState {
+            base_currency: Currency::Inr,
             accounts: [("acct1".to_string(), AccountState::new(Currency::Inr, vec![]))].iter().cloned().collect(),
         };
 
@@ -1327,6 +1340,7 @@ mod tests {
         acc.positions.push(pos);
 
         let state = PortfolioState {
+            base_currency: Currency::Inr,
             accounts: [("acct1".to_string(), acc)].iter().cloned().collect(),
         };
 
@@ -1422,6 +1436,7 @@ mod tests {
         acc.positions.push(pos);
 
         let state = PortfolioState {
+            base_currency: Currency::Inr,
             accounts: [("acct1".to_string(), acc)].iter().cloned().collect(),
         };
 
@@ -1467,6 +1482,7 @@ mod tests {
         acc.positions.push(pos);
 
         let state = PortfolioState {
+            base_currency: Currency::Inr,
             accounts: [("acct1".to_string(), acc)].iter().cloned().collect(),
         };
 
@@ -1512,6 +1528,7 @@ mod tests {
         acc.positions.push(pos);
 
         let state = PortfolioState {
+            base_currency: Currency::Inr,
             accounts: [("acct1".to_string(), acc)].iter().cloned().collect(),
         };
 
@@ -1559,6 +1576,7 @@ mod tests {
         acc.positions.push(pos);
 
         let state = PortfolioState {
+            base_currency: Currency::Inr,
             accounts: [("acct1".to_string(), acc)].iter().cloned().collect(),
         };
 

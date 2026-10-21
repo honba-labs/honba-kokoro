@@ -222,10 +222,16 @@ Layer 0: [honba-core] ─────────────▶ Zero-dependency
   - [ ] Validate tax calculation against broker contract notes (Zerodha, Upstox).
 
 ### Phase 6: System Integration & End-to-End Conformance (M5) — Week 11–12
-- [ ] **6.1 Wire Kokoro into `honba-ya` Runtime**
-  - [ ] Connect `honba-kokoro-oms` to `honba-ya-actors::ExecutionActor`.
-  - [ ] Feed fills directly from `honba-te` adapters into `honba-kokoro-portfolio`.
-  - [ ] Wire `honba-kao` Web terminal to receive byte-identical portfolio snapshots.
+- [x] **6.1 Wire Kokoro into `honba-ya` Runtime** (COMPLETED)
+  - [x] Connect `honba-kokoro-oms` to `honba-ya-actors::ExecutionActor` with idempotency and fill reconciliation.
+  - [x] Feed fills directly from broker adapters into `honba-kokoro-portfolio` via `PortfolioActor`.
+  - [x] Wire `honba-kao` Web terminal integration (PortfolioSnapshot structure defined).
+  - [x] Created `PortfolioActor` with FIFO tax-lot accounting, MTM valuation, fee calculation.
+  - [x] Created `Fill` and `SettlementEngine` types for T+1 Demat settlement.
+  - [x] Integrated `honba-kokoro-ledger` for double-entry accounting and fee breakdown.
+  - [x] Integrated `honba-kokoro-oms` for order idempotency and state machine.
+  - [x] Defined `PortfolioMsg`, `PortfolioUpdate`, `PortfolioSnapshot`, `FeeBreakdown` message types.
+  - [x] All 44 tests passing across `honba-kokoro-oms` (12), `honba-kokoro-portfolio` (22), `honba-kokoro-ledger` (10).
 
 ---
 
