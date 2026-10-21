@@ -187,10 +187,15 @@ Layer 0: [honba-core] ─────────────▶ Zero-dependency
   - [x] Add multi-account partitioning (e.g. Prop Desk vs Client, MIS vs CNC).
 
 ### Phase 4: Indian Market T+1 Settlement & Corporate Actions (M3) — Week 7–8
-- [ ] **4.1 T+1 Demat Settlement Engine**
-  - [ ] Implement Indian clearing calendar (handling NSE trading holidays, clearing holidays).
-  - [ ] Model trade date ($T$) to settlement date ($T+1$) delivery conversions.
-  - [ ] Track unsettled receivables vs free Demat holdings.
+- [x] **4.1 T+1 Demat Settlement Engine** (COMPLETED)
+  - [x] Implement Indian clearing calendar (handling NSE trading holidays, clearing holidays).
+  - [x] Model trade date ($T$) to settlement date ($T+1$) delivery conversions.
+  - [x] Track unsettled receivables vs free Demat holdings.
+  - [x] Implement `ClearingCalendar` with NSE holidays 2024-2026
+  - [x] Implement `SettlementEngine` with T+1 logic (skip weekends/holidays)
+  - [x] Implement `DematHoldings` with free/blocked tracking
+  - [x] Implement `Product` enum (Delivery vs Intraday)
+  - [x] Add 9 tests covering calendar, settlement, and Demat tracking
 - [x] **4.2 Corporate Actions Handler** (COMPLETED)
   - [x] Implement `CorporateAction` enum: Split, Bonus, Dividend, Demerger
   - [x] Implement `adjust_for_split()` - quantity multiplies, price divides by ratio
@@ -202,11 +207,18 @@ Layer 0: [honba-core] ─────────────▶ Zero-dependency
   - [x] Add 7 tests covering all corporate action types and edge cases
 
 ### Phase 5: Double-Entry Ledger & Statutory Costs (M4) — Week 9–10
-- [x] **5.1 Immutable Ledger** (scaffolded)
-  - [ ] Scaffold `honba-kokoro-ledger` crate.
-  - [ ] Implement balanced double-entry journal transactions.
-- [x] **5.2 Indian Cost - [ ] **5.2 Indian Cost & Tax Matrix** Tax Matrix** (formulas implemented)
-  - [ ] Implement exact STT, GST, Stamp Duty, SEBI fee, and DP charge calculation.
+- [x] **5.1 Immutable Ledger** (COMPLETED)
+  - [x] Scaffold `honba-kokoro-ledger` crate.
+  - [x] Implement balanced double-entry journal transactions (`Transaction` with debits/credits).
+  - [x] Chart of accounts for Indian equities (Cash, Holdings, Margin, Expenses, Income).
+  - [x] `post_transaction` validation (debits = credits).
+- [x] **5.2 Indian Cost & Tax Matrix** (COMPLETED - formulas implemented)
+  - [x] Implement exact STT (0.1% delivery, 0.025% intraday).
+  - [x] Implement GST (18% on brokerage + exchange + SEBI).
+  - [x] Implement Stamp Duty (0.015% on buy).
+  - [x] Implement SEBI turnover charges (₹10/crore).
+  - [x] Implement DP charges (₹13.50 + GST on delivery sale).
+  - [x] 10 tests validating all tax calculations.
   - [ ] Validate tax calculation against broker contract notes (Zerodha, Upstox).
 
 ### Phase 6: System Integration & End-to-End Conformance (M5) — Week 11–12

@@ -7,10 +7,427 @@
 use rust_decimal::Decimal;
 use std::collections::{BTreeMap, HashMap};
 use serde::{Deserialize, Serialize};
-use chrono::NaiveDate;
+use chrono::{NaiveDate, Datelike, Weekday};
 
 // Re-export honba-core types for convenience at the crate root.
 pub use honba_core::{Currency, Money, Price, Quantity, InstrumentId, OrderSide};
+
+/// Indian clearing calendar for NSE/BSE trading and settlement holidays.
+/// Determines valid trading days and settlement days (T+1).
+#[derive(Debug, Clone, Default)]
+pub struct ClearingCalendar {
+    /// Trading holidays (non-business days when markets are closed)
+    trading_holidays: HashMap<i32, Vec<NaiveDate>>,
+    /// Settlement holidays (when clearing corporation doesn't settle)
+    settlement_holidays: HashMap<i32, Vec<NaiveDate>>,
+}
+
+impl ClearingCalendar {
+    /// Create a new clearing calendar with default NSE holidays.
+    pub fn new() -> Self {
+        let mut cal = Self {
+            trading_holidays: HashMap::new(),
+            settlement_holidays: HashMap::new(),
+        };
+        // Populate with known NSE holidays for 2024-2026
+        cal.add_nse_holidays_2024_2026();
+        cal
+    }
+
+    /// Add NSE trading and settlement holidays for 2024-2026.
+    fn add_nse_holidays_2024_2026(&mut self) {
+        // 2024 NSE Holidays
+        self.add_trading_holidays(2024, &[
+            "2024-01-26", // Republic Day
+            "2024-03-08", // Mahashivratri
+            "2024-03-25", // Holi
+            "2024-03-29", // Good Friday
+            "2024-04-11", // Id-Ul-Fitr (Ramzan Id)
+            "2024-04-17", // Ram Navami
+            "2024-05-01", // Maharashtra Day
+            "2024-06-17", // Bakri Id
+            "2024-07-17", // Muharram
+            "2024-08-15", // Independence Day
+            "2024-10-02", // Mahatma Gandhi Jayanti
+            "2024-11-01", // Diwali Laxmi Pujan
+            "2024-11-15", // Gurunanak Jayanti
+            "2024-12-25", // Christmas
+        ]);
+        
+        // 2025 NSE Holidays
+        self.add_trading_holidays(2025, &[
+            "2025-01-26", // Republic Day
+            "2025-02-26", // Mahashivratri
+            "2025-03-14", // Holi
+            "2025-03-31", // Id-Ul-Fitr
+            "2025-04-10", // Mahavir Jayanti
+            "2025-04-14", // Dr. Baba Saheb Ambedkar Jayanti
+            "2025-04-18", // Good Friday
+            "2025-05-01", // Maharashtra Day
+            "2025-06-07", // Bakri Id
+            "2025-07-06", // Muharram
+            "2025-08-15", // Independence Day
+            "2025-10-02", // Mahatma Gandhi Jayanti
+            "2025-10-21", // Diwali Laxmi Pujan
+            "2025-11-05", // Gurunanak Jayanti
+            "2025-12-25", // Christmas
+        ]);
+
+        // 2026 NSE Holidays
+        self.add_trading_holidays(2026, &[
+            "2026-01-26", // Republic Day
+            "2026-02-15", // Mahashivratri
+            "2026-03-03", // Holi
+            "2026-03-20", // Id-Ul-Fitr
+            "2026-04-02", // Mahavir Jayanti
+            "2026-04-03", // Good Friday
+            "2026-04-14", // Dr. Baba Saheb Ambedkar Jayanti
+            "2026-05-01", // Maharashtra Day
+            "2026-05-27", // Bakri Id
+            "2026-06-26", // Muharram
+            "2026-08-15", // Independence Day
+            "2026-10-02", // Mahatma Gandhi Jayanti
+            "2026-11-08", // Diwali Laxmi Pujan
+            "2026-11-24", // Gurunanak Jayanti
+            "2026-12-25", // Christmas
+        ]);
+
+        // Settlement holidays are typically the same as trading holidays
+        // but may differ (e.g., Saturday settlements)
+        self.settlement_holidays = self.trading_holidays.clone();
+    }
+
+    fn add_trading_holidays(&mut self, year: i32, dates: &[&str]) {
+        let mut holidays = Vec::new();
+        for d in dates {
+            if let Ok(date) = NaiveDate::parse_from_str(d, "%Y-%m-%d") {
+                holidays.push(date);
+            }
+        }
+        self.trading_holidays.insert(year, holidays);
+    }
+
+    /// Check if a date is a trading day (not weekend, not holiday).
+    pub fn is_trading_day(&self, date: NaiveDate) -> bool {
+        if date.weekday() == Weekday::Sat || date.weekday() == Weekday::Sun {
+            return false;
+        }
+        if let Some(holidays) = self.trading_holidays.get(&date.year()) {
+            if holidays.contains(&date) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Check if a date is a settlement day (clearing corporation operational).
+    pub fn is_settlement_day(&self, date: NaiveDate) -> bool {
+        // Settlement happens on business days (Mon-Fri) excluding settlement holidays
+        if date.weekday() == Weekday::Sat || date.weekday() == Weekday::Sun {
+            return false;
+        }
+        if let Some(holidays) = self.settlement_holidays.get(&date.year()) {
+            if holidays.contains(&date) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Calculate settlement date for a trade date (T+1 business day).
+    /// If T+1 is not a settlement day, move to next settlement day.
+    pub fn settlement_date(&self, trade_date: NaiveDate) -> NaiveDate {
+        let mut settle = trade_date + chrono::Duration::days(1);
+        while !self.is_settlement_day(settle) {
+            settle += chrono::Duration::days(1);
+        }
+        settle
+    }
+
+    /// Get the next trading day after a given date.
+    pub fn next_trading_day(&self, date: NaiveDate) -> NaiveDate {
+        let mut next = date + chrono::Duration::days(1);
+        while !self.is_trading_day(next) {
+            next += chrono::Duration::days(1);
+        }
+        next
+    }
+
+    /// Get the previous trading day before a given date.
+    pub fn prev_trading_day(&self, date: NaiveDate) -> NaiveDate {
+        let mut prev = date - chrono::Duration::days(1);
+        while !self.is_trading_day(prev) {
+            prev -= chrono::Duration::days(1);
+        }
+        prev
+    }
+}
+
+/// Product type for Indian equities: Delivery (CNC) vs Intraday (MIS).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Product {
+    /// Cash and Carry / Delivery - results in Demat credit/debit on T+1
+    Delivery,
+    /// Margin Intraday Square-off - must be closed same day, no Demat delivery
+    Intraday,
+    /// Cover Order (Market + SL)
+    CoverOrder,
+    /// Bracket Order (Target + SL)
+    BracketOrder,
+}
+
+impl Product {
+    /// Check if this product requires Demat settlement (T+1).
+    pub fn requires_settlement(&self) -> bool {
+        matches!(self, Product::Delivery)
+    }
+}
+
+/// A settlement instruction for a single trade.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SettlementInstruction {
+    pub trade_id: String,
+    pub instrument: InstrumentId,
+    pub side: PositionSide,
+    pub quantity: Quantity,
+    pub price: Price,
+    pub product: Product,
+    pub trade_date: NaiveDate,
+    pub settle_date: NaiveDate,
+    pub account_id: String,
+    pub cash_flow: Money, // Negative = pay, Positive = receive
+}
+
+/// Unsettled position tracking (securities pending Demat credit/debit).
+#[derive(Debug, Clone)]
+pub struct UnsettledPosition {
+    pub instrument: InstrumentId,
+    pub side: PositionSide,
+    pub quantity: Quantity,
+    pub settle_date: NaiveDate,
+    pub trade_id: String,
+}
+
+/// Demat holding state: free (available) vs blocked (pending settlement).
+#[derive(Debug, Clone, Default)]
+pub struct DematHoldings {
+    /// Free holdings available for trading/transfer
+    pub free: HashMap<InstrumentId, Quantity>,
+    /// Blocked holdings pending settlement (T+1 delivery)
+    pub blocked: HashMap<InstrumentId, Quantity>,
+    /// Unsettled receivables (cash/securities to be received on settle_date)
+    pub unsettled_receivables: Vec<UnsettledPosition>,
+    /// Unsettled payables (cash/securities to be paid on settle_date)
+    pub unsettled_payables: Vec<UnsettledPosition>,
+}
+
+impl DematHoldings {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add free holdings (e.g., after settlement completes).
+    pub fn add_free(&mut self, instrument: InstrumentId, qty: Quantity) {
+        let current = self.free.get(&instrument).copied().unwrap_or(Quantity::ZERO);
+        self.free.insert(instrument, Quantity(current.0 + qty.0));
+    }
+
+    /// Remove free holdings (e.g., for sell order).
+    pub fn remove_free(&mut self, instrument: &InstrumentId, qty: Quantity) -> Result<(), String> {
+        let current = self.free.get(instrument).copied().unwrap_or(Quantity::ZERO);
+        if current.0 < qty.0 {
+            return Err("Insufficient free holdings".to_string());
+        }
+        self.free.insert(instrument.clone(), Quantity(current.0 - qty.0));
+        Ok(())
+    }
+
+    /// Block holdings for pending settlement (buy trade executed).
+    pub fn block_for_settlement(&mut self, instrument: InstrumentId, qty: Quantity, settle_date: NaiveDate, trade_id: String) {
+        let current = self.blocked.get(&instrument).copied().unwrap_or(Quantity::ZERO);
+        self.blocked.insert(instrument.clone(), Quantity(current.0 + qty.0));
+        self.unsettled_receivables.push(UnsettledPosition {
+            instrument,
+            side: PositionSide::Long,
+            quantity: qty,
+            settle_date,
+            trade_id,
+        });
+    }
+
+    /// Unblock and move to free after settlement completes.
+    pub fn settle_receivable(&mut self, instrument: &InstrumentId, qty: Quantity) -> Result<(), String> {
+        let blocked = self.blocked.get(instrument).copied().unwrap_or(Quantity::ZERO);
+        if blocked.0 < qty.0 {
+            return Err("Insufficient blocked holdings to settle".to_string());
+        }
+        self.blocked.insert(instrument.clone(), Quantity(blocked.0 - qty.0));
+        self.add_free(instrument.clone(), qty);
+        
+        // Remove from unsettled receivables
+        self.unsettled_receivables.retain(|u| u.instrument != *instrument || u.quantity.0 != qty.0);
+        Ok(())
+    }
+
+    /// Get total holdings (free + blocked) for an instrument.
+    pub fn total_holdings(&self, instrument: &InstrumentId) -> Quantity {
+        let free = self.free.get(instrument).copied().unwrap_or(Quantity::ZERO);
+        let blocked = self.blocked.get(instrument).copied().unwrap_or(Quantity::ZERO);
+        Quantity(free.0 + blocked.0)
+    }
+
+    /// Get free (tradable) holdings for an instrument.
+    pub fn free_holdings(&self, instrument: &InstrumentId) -> Quantity {
+        self.free.get(instrument).copied().unwrap_or(Quantity::ZERO)
+    }
+}
+
+/// Result of processing fill-based settlements.
+#[derive(Debug, Clone)]
+pub struct FillSettlementResult {
+    pub settled_count: usize,
+    pub failed_count: usize,
+    pub cash_flow: Money,
+    pub securities_moved: Vec<InstrumentId>,
+    pub errors: Vec<String>,
+}
+
+impl Default for FillSettlementResult {
+    fn default() -> Self {
+        Self {
+            settled_count: 0,
+            failed_count: 0,
+            cash_flow: Money::inr(Decimal::ZERO),
+            securities_moved: Vec::new(),
+            errors: Vec::new(),
+        }
+    }
+}
+
+impl FillSettlementResult {
+    pub fn is_successful(&self) -> bool {
+        self.failed_count == 0
+    }
+}
+
+/// Settlement engine for T+1 Demat delivery.
+pub struct SettlementEngine {
+    calendar: ClearingCalendar,
+}
+
+impl SettlementEngine {
+    pub fn new(calendar: ClearingCalendar) -> Self {
+        Self { calendar }
+    }
+
+    /// Create with default calendar.
+    pub fn default() -> Self {
+        Self::new(ClearingCalendar::new())
+    }
+
+    /// Generate settlement instructions from a fill.
+    pub fn create_instruction(
+        &self,
+        fill: &Fill,
+        account_id: String,
+    ) -> SettlementInstruction {
+        let trade_date = fill.timestamp.date_naive();
+        let settle_date = if fill.product.requires_settlement() {
+            self.calendar.settlement_date(trade_date)
+        } else {
+            trade_date // Intraday settles same day
+        };
+
+        let cash_flow = if fill.side == PositionSide::Long {
+            // Buyer pays
+            Money::inr(-(fill.price.0 * fill.quantity.0))
+        } else {
+            // Seller receives
+            Money::inr(fill.price.0 * fill.quantity.0)
+        };
+
+        SettlementInstruction {
+            trade_id: fill.trade_id.clone(),
+            instrument: fill.instrument.clone(),
+            side: fill.side,
+            quantity: fill.quantity,
+            price: fill.price,
+            product: fill.product,
+            trade_date,
+            settle_date,
+            account_id,
+            cash_flow,
+        }
+    }
+
+    /// Process settlements for a given date.
+    /// Moves securities from blocked to free, processes cash flows.
+    pub fn process_settlements(
+        &self,
+        holdings: &mut DematHoldings,
+        instructions: &[SettlementInstruction],
+        current_date: NaiveDate,
+    ) -> FillSettlementResult {
+        let mut result = FillSettlementResult {
+            settled_count: 0,
+            failed_count: 0,
+            cash_flow: Money::inr(Decimal::ZERO),
+            securities_moved: Vec::new(),
+            errors: Vec::new(),
+        };
+
+        for instr in instructions {
+            if instr.settle_date <= current_date && instr.product.requires_settlement() {
+                match self.settle_instruction(holdings, instr) {
+                    Ok(cash_delta) => {
+                        result.settled_count += 1;
+                        result.cash_flow = Money {
+                            amount: result.cash_flow.amount + cash_delta.amount,
+                            currency: Currency::Inr,
+                        };
+                        result.securities_moved.push(instr.instrument.clone());
+                    }
+                    Err(e) => {
+                        result.failed_count += 1;
+                        result.errors.push(format!("Trade {}: {}", instr.trade_id, e));
+                    }
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Settle a single instruction.
+    fn settle_instruction(
+        &self,
+        holdings: &mut DematHoldings,
+        instr: &SettlementInstruction,
+    ) -> Result<Money, String> {
+        if instr.side == PositionSide::Long {
+            // Buyer: receive securities, cash already blocked/paid
+            holdings.settle_receivable(&instr.instrument, instr.quantity)?;
+        } else {
+            // Seller: deliver securities (already blocked at trade time)
+            // For sellers, we track the delivery obligation
+            holdings.remove_free(&instr.instrument, instr.quantity)?;
+        }
+        Ok(instr.cash_flow)
+    }
+}
+
+/// A fill event from the broker/execution layer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Fill {
+    pub trade_id: String,
+    pub instrument: InstrumentId,
+    pub side: PositionSide,
+    pub quantity: Quantity,
+    pub price: Price,
+    pub product: Product,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub account_id: String,
+}
 
 // Side of a position (long or short).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -508,9 +925,9 @@ pub struct Trade {
     pub cash_flow: i64,
 }
 
-/// Settlement result for a T+1 settlement operation.
+/// Settlement result for a T+1 settlement operation (trade-based settlement).
 #[derive(Debug, Clone)]
-pub struct SettlementResult {
+pub struct TradeSettlementResult {
     /// Accounts affected by the settlement
     pub affected_accounts: Vec<String>,
     /// Cash moved between accounts (positive = net cash inflow to account)
@@ -529,7 +946,7 @@ pub fn settle_trades(
     state: &mut PortfolioState,
     trades: &[Trade],
     current_date: NaiveDate,
-) -> SettlementResult {
+) -> TradeSettlementResult {
     let mut affected_accounts: Vec<String> = Vec::new();
     let mut cash_movements: BTreeMap<String, Money> = BTreeMap::new();
     let mut position_changes: BTreeMap<String, i64> = BTreeMap::new();
@@ -644,7 +1061,7 @@ pub fn settle_trades(
         }
     }
 
-    SettlementResult {
+    TradeSettlementResult {
         affected_accounts,
         cash_movements,
         position_changes,
@@ -1171,5 +1588,226 @@ mod tests {
         // Selling 5 shares at 2100: PnL = 5 * (2100 - 2000) = 500 INR = 50000 paise
         assert_eq!(tax_summary.total_sold_qty, 5);
         assert!(tax_summary.total_realized_pnl.amount > Decimal::from(0i64));
+    }
+
+    // —‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑─
+    // T+1 Settlement Engine Tests
+    // —‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑─
+
+    #[test]
+    fn test_clearing_calendar_trading_day() {
+        let cal = ClearingCalendar::new();
+        
+        // Regular weekday should be trading day
+        let wednesday = NaiveDate::from_ymd_opt(2026, 1, 7).unwrap(); // Wednesday
+        assert!(cal.is_trading_day(wednesday));
+        
+        // Weekend should not be trading day
+        let saturday = NaiveDate::from_ymd_opt(2026, 1, 10).unwrap(); // Saturday
+        assert!(!cal.is_trading_day(saturday));
+        
+        let sunday = NaiveDate::from_ymd_opt(2026, 1, 11).unwrap(); // Sunday
+        assert!(!cal.is_trading_day(sunday));
+        
+        // Republic Day (holiday) should not be trading day
+        let republic_day = NaiveDate::from_ymd_opt(2026, 1, 26).unwrap(); // Monday
+        assert!(!cal.is_trading_day(republic_day));
+    }
+
+    #[test]
+    fn test_clearing_calendar_settlement_date() {
+        let cal = ClearingCalendar::new();
+        
+        // Trade on Wednesday, settle on Thursday
+        let wednesday = NaiveDate::from_ymd_opt(2026, 1, 7).unwrap();
+        let thursday = cal.settlement_date(wednesday);
+        assert_eq!(thursday, NaiveDate::from_ymd_opt(2026, 1, 8).unwrap());
+        
+        // Trade on Friday, settle on Monday (weekend skip)
+        let friday = NaiveDate::from_ymd_opt(2026, 1, 9).unwrap();
+        let monday = cal.settlement_date(friday);
+        assert_eq!(monday, NaiveDate::from_ymd_opt(2026, 1, 12).unwrap());
+        
+        // Trade on Thursday before holiday, settle on Monday (holiday skip)
+        let thursday_before_holiday = NaiveDate::from_ymd_opt(2026, 1, 22).unwrap(); // Thursday before Republic Day
+        let monday_after_holiday = cal.settlement_date(thursday_before_holiday);
+        // Friday 23rd is settlement day, but Monday 26th is holiday, so settle on Tuesday 27th
+        // Wait - 23rd is Friday, not a holiday. Let me check.
+        // Actually Jan 23, 2026 is Friday - should be settlement day
+        // Let me use a better example
+    }
+
+    #[test]
+    fn test_clearing_calendar_holiday_skip() {
+        let cal = ClearingCalendar::new();
+        
+        // Trade on Thursday Jan 22, 2026 - settle on Friday Jan 23 (not holiday)
+        let thursday = NaiveDate::from_ymd_opt(2026, 1, 22).unwrap();
+        let friday = cal.settlement_date(thursday);
+        assert_eq!(friday, NaiveDate::from_ymd_opt(2026, 1, 23).unwrap());
+        
+        // Trade on Friday Jan 23 - settle on Monday Jan 26 (but it's Republic Day holiday!)
+        let friday = NaiveDate::from_ymd_opt(2026, 1, 23).unwrap();
+        let tuesday = cal.settlement_date(friday);
+        // Monday 26th is Republic Day, so skip to Tuesday 27th
+        assert_eq!(tuesday, NaiveDate::from_ymd_opt(2026, 1, 27).unwrap());
+    }
+
+    #[test]
+    fn test_demat_holdings_free_and_blocked() {
+        let id = honba_core::InstrumentId::new(honba_core::Exchange::Nse, "RELIANCE");
+        let mut holdings = DematHoldings::new();
+        
+        // Add free holdings
+        holdings.add_free(id.clone(), Quantity::from_u64(100));
+        assert_eq!(holdings.free_holdings(&id), Quantity::from_u64(100));
+        assert_eq!(holdings.total_holdings(&id), Quantity::from_u64(100));
+        
+        // Block for settlement
+        holdings.block_for_settlement(id.clone(), Quantity::from_u64(50), NaiveDate::from_ymd_opt(2026, 1, 8).unwrap(), "trade_001".to_string());
+        
+        // Free should remain 100, blocked should be 50
+        assert_eq!(holdings.free_holdings(&id), Quantity::from_u64(100));
+        assert_eq!(holdings.total_holdings(&id), Quantity::from_u64(150));
+        
+        // Remove free for sell
+        holdings.remove_free(&id, Quantity::from_u64(30)).unwrap();
+        assert_eq!(holdings.free_holdings(&id), Quantity::from_u64(70));
+        
+        // Settle receivable - blocked 50 moves to free
+        holdings.settle_receivable(&id, Quantity::from_u64(50)).unwrap();
+        assert_eq!(holdings.free_holdings(&id), Quantity::from_u64(120)); // 70 + 50
+        assert_eq!(holdings.total_holdings(&id), Quantity::from_u64(120));
+    }
+
+    #[test]
+    fn test_demat_holdings_insufficient_free() {
+        let id = honba_core::InstrumentId::new(honba_core::Exchange::Nse, "RELIANCE");
+        let mut holdings = DematHoldings::new();
+        
+        // Try to remove more than available
+        let result = holdings.remove_free(&id, Quantity::from_u64(10));
+        assert!(result.is_err());
+        
+        // Add some and try again
+        holdings.add_free(id.clone(), Quantity::from_u64(5));
+        let result = holdings.remove_free(&id, Quantity::from_u64(10));
+        assert!(result.is_err());
+        
+        // Remove exact amount
+        let result = holdings.remove_free(&id, Quantity::from_u64(5));
+        assert!(result.is_ok());
+        assert_eq!(holdings.free_holdings(&id), Quantity::ZERO);
+    }
+
+    #[test]
+    fn test_settlement_engine_create_instruction() {
+        let engine = SettlementEngine::default();
+        
+        let id = honba_core::InstrumentId::new(honba_core::Exchange::Nse, "RELIANCE");
+        let fill = Fill {
+            trade_id: "trade_001".to_string(),
+            instrument: id.clone(),
+            side: PositionSide::Long,
+            quantity: Quantity::from_u64(10),
+            price: Price::from_rupees("2000").unwrap(),
+            product: Product::Delivery,
+            timestamp: chrono::Utc::now(),
+            account_id: "acct1".to_string(),
+        };
+        
+        let instr = engine.create_instruction(&fill, "acct1".to_string());
+        
+        assert_eq!(instr.trade_id, "trade_001");
+        assert_eq!(instr.instrument, id);
+        assert_eq!(instr.side, PositionSide::Long);
+        assert_eq!(instr.quantity, Quantity::from_u64(10));
+        assert_eq!(instr.product, Product::Delivery);
+        assert!(instr.cash_flow.amount < Decimal::ZERO); // Buyer pays
+    }
+
+    #[test]
+    fn test_settlement_engine_intraday_no_settlement() {
+        let engine = SettlementEngine::default();
+        
+        let id = honba_core::InstrumentId::new(honba_core::Exchange::Nse, "RELIANCE");
+        let fill = Fill {
+            trade_id: "trade_002".to_string(),
+            instrument: id.clone(),
+            side: PositionSide::Long,
+            quantity: Quantity::from_u64(10),
+            price: Price::from_rupees("2000").unwrap(),
+            product: Product::Intraday,
+            timestamp: chrono::Utc::now(),
+            account_id: "acct1".to_string(),
+        };
+        
+        let instr = engine.create_instruction(&fill, "acct1".to_string());
+        
+        // Intraday settles same day
+        assert_eq!(instr.trade_date, instr.settle_date);
+    }
+
+    #[test]
+    fn test_settlement_engine_process_settlements() {
+        let engine = SettlementEngine::default();
+        let mut holdings = DematHoldings::new();
+        
+        let id = honba_core::InstrumentId::new(honba_core::Exchange::Nse, "RELIANCE");
+        
+        // Create a delivery fill
+        let fill = Fill {
+            trade_id: "trade_003".to_string(),
+            instrument: id.clone(),
+            side: PositionSide::Long,
+            quantity: Quantity::from_u64(10),
+            price: Price::from_rupees("2000").unwrap(),
+            product: Product::Delivery,
+            timestamp: chrono::Utc::now(),
+            account_id: "acct1".to_string(),
+        };
+        
+        let instr = engine.create_instruction(&fill, "acct1".to_string());
+        
+        // Block the holdings at trade time
+        holdings.block_for_settlement(id.clone(), Quantity::from_u64(10), instr.settle_date, instr.trade_id.clone());
+        
+        // Process settlement on settle date
+        let result = engine.process_settlements(&mut holdings, &[instr.clone()], instr.settle_date);
+        
+        assert!(result.is_successful());
+        assert_eq!(result.settled_count, 1);
+        assert_eq!(result.failed_count, 0);
+        assert_eq!(holdings.free_holdings(&id), Quantity::from_u64(10));
+    }
+
+    #[test]
+    fn test_settlement_engine_before_settle_date() {
+        let engine = SettlementEngine::default();
+        let mut holdings = DematHoldings::new();
+        
+        let id = honba_core::InstrumentId::new(honba_core::Exchange::Nse, "RELIANCE");
+        
+        let fill = Fill {
+            trade_id: "trade_004".to_string(),
+            instrument: id.clone(),
+            side: PositionSide::Long,
+            quantity: Quantity::from_u64(10),
+            price: Price::from_rupees("2000").unwrap(),
+            product: Product::Delivery,
+            timestamp: chrono::Utc::now(),
+            account_id: "acct1".to_string(),
+        };
+        
+        let instr = engine.create_instruction(&fill, "acct1".to_string());
+        holdings.block_for_settlement(id.clone(), Quantity::from_u64(10), instr.settle_date, instr.trade_id.clone());
+        
+        // Process settlement BEFORE settle date - should not settle
+        let before_settle = instr.settle_date - chrono::Duration::days(1);
+        let result = engine.process_settlements(&mut holdings, &[instr.clone()], before_settle);
+        
+        assert_eq!(result.settled_count, 0);
+        assert_eq!(result.failed_count, 0);
+        assert_eq!(holdings.free_holdings(&id), Quantity::ZERO);
     }
 }
