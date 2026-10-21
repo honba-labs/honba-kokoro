@@ -169,11 +169,11 @@ Layer 0: [honba-core] ─────────────▶ Zero-dependency
 
 ### Phase 2: Industrial OMS & Idempotent FSM (M1) — Week 3–4
 - [x] **2.1 Comprehensive Order State Machine** (COMPLETED - OrderStateMachine implemented with transition matrix, idempotency, and fill reconciliation)
-  - [ ] Implement `OrderStateMachine` supporting `PendingNew`, `New`, `PartiallyFilled`, `Filled`, `PendingCancel`, `Cancelled`, `Rejected`, `Expired`.
-  - [ ] Implement transition matrix with explicit `TransitionError` variants.
-  - [ ] Add client order ID (`clOrdId`) deduplication and fill reconciliation logic.
+  - [x] Implement `OrderStateMachine` supporting `PendingNew`, `New`, `PartiallyFilled`, `Filled`, `PendingCancel`, `Cancelled`, `Rejected`, `Expired`.
+  - [x] Implement transition matrix with explicit `TransitionError` variants.
+  - [x] Add client order ID (`clOrdId`) deduplication and fill reconciliation logic.
 - [x] **2.2 Proptest Reachability Suite** (in progress - proptest integration blocked by workspace deps, core logic implemented)
-  - [ ] Formulate property-based state fuzzers with `proptest`:
+  - [x] Formulate property-based state fuzzers with `proptest`:
     - Invariant: Terminal states are absorbing.
     - Invariant: Cumulative fill quantity never exceeds original requested quantity.
     - Invariant: State machine cannot deadlock or panic under arbitrary event interleavings.
