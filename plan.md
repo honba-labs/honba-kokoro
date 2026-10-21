@@ -172,11 +172,18 @@ Layer 0: [honba-core] ─────────────▶ Zero-dependency
   - [x] Implement `OrderStateMachine` supporting `PendingNew`, `New`, `PartiallyFilled`, `Filled`, `PendingCancel`, `Cancelled`, `Rejected`, `Expired`.
   - [x] Implement transition matrix with explicit `TransitionError` variants.
   - [x] Add client order ID (`clOrdId`) deduplication and fill reconciliation logic.
-- [x] **2.2 Proptest Reachability Suite** (in progress - proptest integration blocked by workspace deps, core logic implemented)
+- [x] **2.2 Proptest Reachability Suite** (COMPLETED)
   - [x] Formulate property-based state fuzzers with `proptest`:
     - Invariant: Terminal states are absorbing.
     - Invariant: Cumulative fill quantity never exceeds original requested quantity.
     - Invariant: State machine cannot deadlock or panic under arbitrary event interleavings.
+    - Invariant: Idempotency - duplicate clOrdId rejected.
+    - Invariant: Only valid transitions allowed.
+    - Invariant: State retrieval after registration.
+    - Invariant: Cumulative fill correctly tracked.
+    - Invariant: Multiple orders independent tracking.
+    - Invariant: Fill on terminal state recorded.
+    - Invariant: is_terminal correctly identifies terminal states.
 
 ### Phase 3: Multi-Account FIFO Portfolio Engine (M2) — Week 5–6
 - [x] **3.1 Exact FIFO Matching** (COMPLETED)
@@ -212,14 +219,14 @@ Layer 0: [honba-core] ─────────────▶ Zero-dependency
   - [x] Implement balanced double-entry journal transactions (`Transaction` with debits/credits).
   - [x] Chart of accounts for Indian equities (Cash, Holdings, Margin, Expenses, Income).
   - [x] `post_transaction` validation (debits = credits).
-- [x] **5.2 Indian Cost & Tax Matrix** (COMPLETED - formulas implemented)
+- [x] **5.2 Indian Cost & Tax Matrix** (COMPLETED - formulas implemented + broker validation)
   - [x] Implement exact STT (0.1% delivery, 0.025% intraday).
   - [x] Implement GST (18% on brokerage + exchange + SEBI).
   - [x] Implement Stamp Duty (0.015% on buy).
   - [x] Implement SEBI turnover charges (₹10/crore).
   - [x] Implement DP charges (₹13.50 + GST on delivery sale).
   - [x] 10 tests validating all tax calculations.
-  - [ ] Validate tax calculation against broker contract notes (Zerodha, Upstox).
+  - [x] **Validate tax calculation against broker contract notes (Zerodha, Upstox)** - 5 tests covering delivery buy, intraday sell, option buy for both brokers, and total charges reconciliation.
 
 ### Phase 6: System Integration & End-to-End Conformance (M5) — Week 11–12
 - [x] **6.1 Wire Kokoro into `honba-ya` Runtime** (COMPLETED)

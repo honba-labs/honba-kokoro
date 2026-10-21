@@ -31,3 +31,4 @@ uuid = { version = "1", features = ["v4", "serde"] }
 axum = "0.7"
 clap = { version = "4", features = ["derive"] }
 hyper = "1"
+proptest = "1.12"
