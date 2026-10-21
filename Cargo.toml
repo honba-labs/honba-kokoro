@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "crates/honba-kokoro-oms",
   "crates/honba-kokoro-portfolio",
+  "crates/honba-kokoro-ledger",
 ]
 
 [workspace.package]
