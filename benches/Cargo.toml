@@ -1,0 +1,18 @@
+[package]
+name = "honba-kokoro-benches"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "honba_kokoro_benches"
+path = "valuation_benchmarks.rs"
+harness = false
+
+[dependencies]
+honba-kokoro-oms = { path = "../crates/honba-kokoro-oms" }
+honba-kokoro-portfolio = { path = "../crates/honba-kokoro-portfolio" }
+honba-kokoro-ledger = { path = "../crates/honba-kokoro-ledger" }
+honba-core = { path = "../../honba-core" }
+divan = "0.1"
+rust_decimal = "1"

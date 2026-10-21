@@ -5,6 +5,7 @@ members = [
   "crates/honba-kokoro-portfolio",
   "crates/honba-kokoro-ledger",
 ]
+exclude = ["benches"]
 
 [workspace.package]
 version = "0.1.0"
@@ -32,3 +33,4 @@ axum = "0.7"
 clap = { version = "4", features = ["derive"] }
 hyper = "1"
 proptest = "1.12"
+divan = "0.1"

@@ -343,3 +343,9 @@ mod tests {
             "Net amount {} should be within ₹1 of expected {}", net_amount, expected_net);
     }
 }
+
+pub mod golden_tests;
+pub use golden_tests::*;
+
+#[cfg(feature = "bench")]
+mod benches;

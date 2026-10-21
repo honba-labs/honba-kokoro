@@ -18,3 +18,11 @@ uuid = "1"
 anyhow = "1"
 thiserror.workspace = true
 rust_decimal = "1"
+
+[dev-dependencies]
+divan = { workspace = true }
+
+[[bench]]
+name = "portfolio_benchmarks"
+path = "benches/portfolio_benchmarks.rs"
+harness = false

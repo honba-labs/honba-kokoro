@@ -8,3 +8,14 @@ rust_decimal = "1"
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+csv = "1"
+clap = { version = "4", features = ["derive"] }
+
+[dev-dependencies]
+divan = { workspace = true }
+
+[[bench]]
+name = "golden_tests"
+path = "golden_tests/main.rs"
+harness = false
