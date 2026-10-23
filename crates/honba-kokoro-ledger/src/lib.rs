@@ -2,8 +2,8 @@
 //! Immutable financial journal tracking cash balance, margin allocations,
 //! statutory taxes (STT, GST, Stamp Duty), and exchange turnover charges.
 
-use rust_decimal::Decimal;
 use chrono::{DateTime, Utc};
+use rust_decimal::Decimal;
 use std::collections::BTreeMap;
 use thiserror::Error;
 
@@ -80,6 +80,7 @@ impl TaxCalculator {
         stt
     }
 
+    #[allow(non_snake_case)]
     pub fn GST(brokerage: Decimal, exchange_charges: Decimal, sebi_fees: Decimal) -> Decimal {
         let total = brokerage + exchange_charges + sebi_fees;
         (total * Decimal::from(18i64) / Decimal::from(100i64)).floor()
@@ -241,10 +242,10 @@ impl TaxCalculator {
             return Decimal::ZERO;
         }
         let rate = match product {
-            ProductType::Delivery => Decimal::new(15, 5),  // 0.015%
-            ProductType::Intraday => Decimal::new(3, 5),   // 0.003%
-            ProductType::Futures => Decimal::new(2, 5),    // 0.002%
-            ProductType::Options => Decimal::new(3, 5),    // 0.003%
+            ProductType::Delivery => Decimal::new(15, 5), // 0.015%
+            ProductType::Intraday => Decimal::new(3, 5),  // 0.003%
+            ProductType::Futures => Decimal::new(2, 5),   // 0.002%
+            ProductType::Options => Decimal::new(3, 5),   // 0.003%
         };
         round_inr(notional * rate)
     }
@@ -331,7 +332,10 @@ mod tests {
             id: "tx_001".to_string(),
             timestamp: Utc::now(),
             debits: BTreeMap::from_iter([("CashAtBroker".to_string(), Decimal::from(1000i64))]),
-            credits: BTreeMap::from_iter([("IncomeRealizedPnL".to_string(), Decimal::from(1000i64))]),
+            credits: BTreeMap::from_iter([(
+                "IncomeRealizedPnL".to_string(),
+                Decimal::from(1000i64),
+            )]),
             description: "Test transaction".to_string(),
         };
         assert!(post_transaction(&tx).is_ok());
@@ -343,7 +347,10 @@ mod tests {
             id: "tx_002".to_string(),
             timestamp: Utc::now(),
             debits: BTreeMap::from_iter([("CashAtBroker".to_string(), Decimal::from(1000i64))]),
-            credits: BTreeMap::from_iter([("IncomeRealizedPnL".to_string(), Decimal::from(500i64))]),
+            credits: BTreeMap::from_iter([(
+                "IncomeRealizedPnL".to_string(),
+                Decimal::from(500i64),
+            )]),
             description: "Unbalanced transaction".to_string(),
         };
         assert!(post_transaction(&tx).is_err());
@@ -362,8 +369,13 @@ mod tests {
     }
 
     #[test]
+    #[allow(non_snake_case)]
     fn test_GST() {
-        let gst = TaxCalculator::GST(Decimal::from(1000i64), Decimal::from(200i64), Decimal::from(50i64));
+        let gst = TaxCalculator::GST(
+            Decimal::from(1000i64),
+            Decimal::from(200i64),
+            Decimal::from(50i64),
+        );
         assert_eq!(gst, Decimal::from(225i64));
     }
 
@@ -398,15 +410,18 @@ mod tests {
             id: "tx_test".to_string(),
             timestamp: Utc::now(),
             debits: BTreeMap::from_iter([("CashAtBroker".to_string(), Decimal::from(500i64))]),
-            credits: BTreeMap::from_iter([("IncomeRealizedPnL".to_string(), Decimal::from(500i64))]),
+            credits: BTreeMap::from_iter([(
+                "IncomeRealizedPnL".to_string(),
+                Decimal::from(500i64),
+            )]),
             description: "Test transaction".to_string(),
         };
         assert!(post_transaction(&tx).is_ok());
     }
 
-    // —‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑─
+    // ————————————————————————————————————————
     // Broker Contract Note Validation Tests (Phase 5.2)
-    // —‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑─
+    // ————————————————————————————————————————
 
     /// Zerodha contract note sample for a delivery buy trade
     /// Based on real Zerodha contract note format
@@ -416,7 +431,7 @@ mod tests {
         let price = Decimal::from(250000); // ₹2,500.00 in paise
         let quantity = Decimal::from(100);
         let brokerage = Decimal::from(2000); // ₹20.00
-        
+
         // Calculate all charges using our TaxCalculator
         let stt = TaxCalculator::stt(true, price, quantity);
         let turnover = price * quantity;
@@ -424,7 +439,7 @@ mod tests {
         let sebi_charges = TaxCalculator::sebi_turnover_charges(turnover);
         let stamp_duty = TaxCalculator::stamp_duty(price, quantity, true);
         let gst = TaxCalculator::GST(brokerage, exchange_charges, sebi_charges);
-        
+
         // Expected values from Zerodha contract note (in paise):
         // Trade: 100 shares @ ₹2,500 = ₹2,50,000 turnover
         // STT: 0.1% of ₹2,50,000 = ₹250 = 25,000 paise
@@ -432,7 +447,7 @@ mod tests {
         // SEBI charges: ₹10 per crore = ₹0.25
         // Stamp duty: 0.015% of ₹2,50,000 = ₹37.50 = 3,750 paise
         // GST: 18% on (2000 + exchange + sebi)
-        
+
         assert_eq!(stt, Decimal::from(25000)); // 0.1% of ₹2,50,000 = ₹250 = 25,000 paise
         assert_eq!(sebi_charges, Decimal::from(25)); // ₹10 per crore on ₹2.5 lakh = ₹0.25 = 25 paise
         assert_eq!(stamp_duty, Decimal::from(3750)); // 0.015% of ₹2,50,000 = ₹37.50 = 3,750 paise
@@ -446,21 +461,21 @@ mod tests {
         let price = Decimal::from(150000); // ₹1,500.00 in paise
         let quantity = Decimal::from(50);
         let brokerage = Decimal::from(1000); // ₹10.00
-        
+
         let stt = TaxCalculator::stt(false, price, quantity);
         let turnover = price * quantity;
         let exchange_charges = TaxCalculator::sebi_turnover_charges(turnover);
         let sebi_charges = TaxCalculator::sebi_turnover_charges(turnover);
         let stamp_duty = TaxCalculator::stamp_duty(price, quantity, false); // No stamp duty on sell
         let gst = TaxCalculator::GST(brokerage, exchange_charges, sebi_charges);
-        
+
         // Trade: 50 shares @ ₹1,500 = ₹75,000 turnover
         // STT: 0.025% of ₹75,000 = ₹18.75 = 1,875 paise
         // Exchange charges: ₹2.97 per crore
         // SEBI charges: ₹10 per crore
         // Stamp duty: 0 on sell
         // GST: 18% on (1000 + exchange + sebi)
-        
+
         assert_eq!(stt, Decimal::from(1875)); // 0.025% of ₹75,000 = ₹18.75 = 1,875 paise
         assert_eq!(stamp_duty, Decimal::from(0)); // No stamp duty on sell
         assert_eq!(gst, Decimal::from(182)); // 18% of 1000
@@ -473,21 +488,21 @@ mod tests {
         let price = Decimal::from(320000); // ₹3,200.00 in paise
         let quantity = Decimal::from(200);
         let brokerage = Decimal::from(2000); // ₹20.00 (Upstox charges ₹20 per order)
-        
+
         let stt = TaxCalculator::stt(true, price, quantity);
         let turnover = price * quantity;
         let exchange_charges = TaxCalculator::sebi_turnover_charges(turnover);
         let sebi_charges = TaxCalculator::sebi_turnover_charges(turnover);
         let stamp_duty = TaxCalculator::stamp_duty(price, quantity, true);
-        let gst = TaxCalculator::GST(brokerage, exchange_charges, sebi_charges);
-        
+        let _gst = TaxCalculator::GST(brokerage, exchange_charges, sebi_charges);
+
         // Trade: 200 shares @ ₹3,200 = ₹6,40,000 turnover
         // STT: 0.1% of ₹6,40,000 = ₹640 = 64,000 paise
         // Exchange charges: NSE ₹2.97 per crore
         // SEBI charges: ₹10 per crore
         // Stamp duty: 0.015% of ₹6,40,000 = ₹96 = 9,600 paise
         // GST: 18% on (2000 + exchange + sebi)
-        
+
         assert_eq!(stt, Decimal::from(64000)); // 0.1% of ₹6,40,000 = ₹640 = 64,000 paise
         assert_eq!(stamp_duty, Decimal::from(9600)); // 0.015% of ₹6,40,000 = ₹96 = 9,600 paise
     }
@@ -499,24 +514,24 @@ mod tests {
         // Lot size: 50
         let price = Decimal::from(15000); // ₹150.00 in paise
         let quantity = Decimal::from(50); // 1 lot
-        let brokerage = Decimal::from(2000); // ₹20.00 per order
-        
+        let _brokerage = Decimal::from(2000); // ₹20.00 per order
+
         // For options: STT is 0.0125% on premium (on sell side)
         // On buy side: No STT
         // Exchange charges: NSE ₹2.97 per crore on premium
         // SEBI charges: ₹10 per crore on premium
         // Stamp duty: 0.003% on buy side for options
         // GST: 18% on (brokerage + exchange + sebi)
-        
+
         let stt = TaxCalculator::stt(false, price, quantity); // Intraday rate for options
         let turnover = price * quantity;
-        let exchange_charges = TaxCalculator::sebi_turnover_charges(turnover);
-        let sebi_charges = TaxCalculator::sebi_turnover_charges(turnover);
-        
+        let _exchange_charges = TaxCalculator::sebi_turnover_charges(turnover);
+        let _sebi_charges = TaxCalculator::sebi_turnover_charges(turnover);
+
         // Turnover = 15000 * 50 = 7,50,000 paise = ₹7,500
         // Exchange: ₹2.97 per crore = 0.22 paise
         // SEBI: ₹10 per crore = 0.75 paise
-        
+
         // Using intraday rate as approximation for options
         assert_eq!(stt, Decimal::from(187)); // 0.025% of ₹7,500 = ₹18.75 = 1,875 paise
     }
@@ -528,7 +543,7 @@ mod tests {
         let price = Decimal::from(200000);
         let quantity = Decimal::from(100);
         let brokerage = Decimal::from(2000);
-        
+
         let stt = TaxCalculator::stt(true, price, quantity);
         let turnover = price * quantity;
         let exchange = TaxCalculator::sebi_turnover_charges(turnover);
@@ -536,26 +551,27 @@ mod tests {
         let stamp = TaxCalculator::stamp_duty(price, quantity, true);
         let gst = TaxCalculator::GST(Decimal::from(2000), exchange, stt);
         let dp = TaxCalculator::dp_charges(true);
-        
+
         let total_charges = brokerage + stt + exchange + sebi + stamp + gst + dp;
-        
+
         // Net amount = price * quantity + total_charges (for buy)
         let net_amount = (price * quantity) + total_charges;
-        
+
         // For buy 100 @ 2000: 2,00,000 + charges
         // Expected net: ~2,00,000 + 2,000 (brokerage) + 200 (STT) + 2 (exch) + 2 (SEBI) + 30 (stamp) + 360 (GST) + 1593 (DP)
         // = ~2,04,217 paise = ₹2,042.17
-        
+
         let expected_net = Decimal::from(20029019); // Approximate expected net in paise
         let tolerance = Decimal::from(100); // ±₹1 tolerance
-        
-        assert!((net_amount - expected_net).abs() <= tolerance, 
-            "Net amount {} should be within ₹1 of expected {}", net_amount, expected_net);
+
+        assert!(
+            (net_amount - expected_net).abs() <= tolerance,
+            "Net amount {} should be within ₹1 of expected {}",
+            net_amount,
+            expected_net
+        );
     }
 }
 
 pub mod golden_tests;
 pub use golden_tests::*;
-
-#[cfg(feature = "bench")]
-mod benches;

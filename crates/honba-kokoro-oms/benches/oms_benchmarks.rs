@@ -3,9 +3,9 @@
 //! Targets:
 //! - Order transition validation: < 30 ns
 
-use divan::{black_box, Bencher};
-use honba_kokoro_oms::{OrderState, OrderStateMachine, OrderState::*};
 use chrono::Utc;
+use divan::{Bencher, black_box};
+use honba_kokoro_oms::{OrderState, OrderState::*, OrderStateMachine};
 
 /// Benchmark: Order State Transition Validation
 /// Target: < 30 ns per transition
@@ -13,7 +13,7 @@ use chrono::Utc;
 fn order_transition_validation(bencher: Bencher) {
     let from = OrderState::New;
     let to = OrderState::PartiallyFilled;
-    
+
     bencher.bench_local(|| {
         let result = OrderState::transition(from, to);
         black_box(result)
@@ -50,17 +50,17 @@ fn oms_process_fill(bencher: Bencher) {
 fn oms_full_lifecycle(bencher: Bencher) {
     bencher.bench_local(|| {
         let mut oms = OrderStateMachine::new();
-        
+
         // Register
         oms.register_order("cl_001".to_string(), PendingNew, Utc::now());
-        
+
         // Transition to New
         let _ = OrderState::transition(PendingNew, New);
-        
+
         // Process fills
         let _ = oms.process_fill("cl_001", 50);
         let _ = oms.process_fill("cl_001", 50);
-        
+
         // Final state check
         let state = oms.get_state("cl_001");
         black_box(state);
@@ -74,13 +74,13 @@ fn idempotency_check(bencher: Bencher) {
     bencher.bench_local(|| {
         let mut oms = OrderStateMachine::new();
         let cl_ord_id = "bench_idempotent";
-        
+
         // First registration
         oms.register_order(cl_ord_id.to_string(), PendingNew, Utc::now());
-        
+
         // Check idempotency (should fail)
         let result = black_box(oms.check_idempotency(cl_ord_id));
-        black_box(result);
+        let _ = black_box(result);
     });
 }
 
@@ -90,7 +90,7 @@ fn idempotency_check(bencher: Bencher) {
 fn state_retrieval(bencher: Bencher) {
     let mut oms = OrderStateMachine::new();
     oms.register_order("cl_001".to_string(), PendingNew, Utc::now());
-    
+
     bencher.bench_local(|| {
         let state = oms.get_state("cl_001");
         black_box(state);
@@ -102,7 +102,7 @@ fn state_retrieval(bencher: Bencher) {
 fn cumulative_fill_tracking(bencher: Bencher) {
     let mut oms = OrderStateMachine::new();
     oms.register_order("cl_001".to_string(), PendingNew, Utc::now());
-    
+
     bencher.bench_local(|| {
         let _ = oms.process_fill("cl_001", 10);
         let cum = oms.get_cumulative_fill("cl_001");

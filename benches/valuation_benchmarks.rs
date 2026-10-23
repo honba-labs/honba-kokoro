@@ -6,16 +6,18 @@
 //! - Order transition validation: < 30 ns
 
 use divan::{black_box, Bencher};
-use honba_kokoro_oms::{OrderState, OrderStateMachine, OrderState::*};
-use honba_portfolio::{
-    apply_fill_to_account, AccountState, HeldPosition, Marks, PortfolioState,
-    PositionSide, TaxSummary, compute_capital_gains,
-};
-use honba_core::{Currency, InstrumentId, Exchange, Money, Price, Quantity, OrderSide, chrono::NaiveDate};
 use honba_core::chrono::Utc;
+use honba_core::{chrono::NaiveDate, Currency, Exchange, InstrumentId, Money, Price, Quantity};
+use honba_kokoro_oms::{OrderState, OrderState::*, OrderStateMachine};
+use honba_portfolio::{
+    apply_fill_to_account, compute_capital_gains, AccountState, HeldPosition, Marks,
+    PortfolioState, PositionSide,
+};
 use rust_decimal::Decimal;
-use std::collections::BTreeMap;
-use std::sync::Arc;
+
+fn main() {
+    divan::main();
+}
 
 /// Benchmark: Order State Transition Validation
 /// Target: < 30 ns per transition
@@ -23,7 +25,7 @@ use std::sync::Arc;
 fn order_transition_validation(bencher: Bencher) {
     let from = OrderState::New;
     let to = OrderState::PartiallyFilled;
-    
+
     bencher.bench(|| {
         let result = OrderState::transition(from, to);
         black_box(result)
@@ -61,7 +63,7 @@ fn fifo_taxlot_fill_match(bencher: Bencher) {
     let mut portfolio = PortfolioState::new(Currency::Inr);
     let account = AccountState::new(Currency::Inr, vec![]);
     portfolio.accounts.insert("bench".to_string(), account);
-    
+
     let id = InstrumentId::new(Exchange::Nse, "RELIANCE");
     let pos = HeldPosition::new(
         id.clone(),
@@ -69,8 +71,13 @@ fn fifo_taxlot_fill_match(bencher: Bencher) {
         Quantity::new(Decimal::from(100)),
         Price::from_rupees("2000").unwrap(),
     );
-    portfolio.accounts.get_mut("bench").unwrap().positions.push(pos);
-    
+    portfolio
+        .accounts
+        .get_mut("bench")
+        .unwrap()
+        .positions
+        .push(pos);
+
     bencher.bench_local(|| {
         let pnl = apply_fill_to_account(
             portfolio.accounts.get_mut("bench").unwrap(),
@@ -87,7 +94,6 @@ fn fifo_taxlot_fill_match(bencher: Bencher) {
 /// Target: ~50-100 ns per computation
 #[divan::bench]
 fn capital_gains_computation(bencher: Bencher) {
-    
     let id = InstrumentId::new(Exchange::Nse, "RELIANCE");
     let pos = HeldPosition::new(
         id.clone(),
@@ -95,16 +101,12 @@ fn capital_gains_computation(bencher: Bencher) {
         Quantity::new(Decimal::from(100)),
         Price::from_rupees("1500").unwrap(),
     );
-    
+
     let sale_date = NaiveDate::from_ymd_opt(2026, 6, 1).unwrap();
-    
+
     bencher.bench(|| {
-        let (pnl, gain_type) = compute_capital_gains(
-            &pos,
-            10,
-            Price::from_rupees("2000").unwrap(),
-            sale_date,
-        );
+        let (pnl, gain_type) =
+            compute_capital_gains(&pos, 10, Price::from_rupees("2000").unwrap(), sale_date);
         black_box((pnl, gain_type));
     });
 }
@@ -115,7 +117,7 @@ fn capital_gains_computation(bencher: Bencher) {
 fn portfolio_mtm_valuation_10_positions(bencher: Bencher) {
     let mut portfolio = PortfolioState::new(Currency::Inr);
     let mut marks = Marks::new();
-    
+
     // Add 10 positions
     let mut account = AccountState::new(Currency::Inr, vec![]);
     for i in 0..10 {
@@ -130,19 +132,19 @@ fn portfolio_mtm_valuation_10_positions(bencher: Bencher) {
         marks.marks.insert(id, Price::from_rupees("2015").unwrap());
     }
     portfolio.accounts.insert("bench".to_string(), account);
-    
+
     bencher.bench_local(|| {
         // Simulate MTM by computing market value for each position
         let mut total_market_value = Money::inr(Decimal::ZERO);
         let mut total_unrealized = Money::inr(Decimal::ZERO);
-        
+
         if let Some(account) = portfolio.accounts.get("bench") {
             for pos in &account.positions {
                 if let Some(mark) = marks.marks.get(&pos.instrument) {
                     let market_value = mark.0 * pos.quantity.0;
                     let cost_basis = pos.entry_price.0 * pos.quantity.0;
                     let unrealized = market_value - cost_basis;
-                    
+
                     total_market_value = Money {
                         amount: total_market_value.amount + market_value,
                         currency: Currency::Inr,
@@ -154,7 +156,7 @@ fn portfolio_mtm_valuation_10_positions(bencher: Bencher) {
                 }
             }
         }
-        
+
         black_box((total_market_value, total_unrealized));
     });
 }
@@ -165,7 +167,7 @@ fn portfolio_mtm_valuation_10_positions(bencher: Bencher) {
 fn portfolio_mtm_valuation_100_positions(bencher: Bencher) {
     let mut portfolio = PortfolioState::new(Currency::Inr);
     let mut marks = Marks::new();
-    
+
     // Add 100 positions
     let mut account = AccountState::new(Currency::Inr, vec![]);
     for i in 0..100 {
@@ -180,19 +182,19 @@ fn portfolio_mtm_valuation_100_positions(bencher: Bencher) {
         marks.marks.insert(id, Price::from_rupees("2015").unwrap());
     }
     portfolio.accounts.insert("bench".to_string(), account);
-    
+
     bencher.bench_local(|| {
         // Simulate MTM by computing market value for each position
         let mut total_market_value = Money::inr(Decimal::ZERO);
         let mut total_unrealized = Money::inr(Decimal::ZERO);
-        
+
         if let Some(account) = portfolio.accounts.get("bench") {
             for pos in &account.positions {
                 if let Some(mark) = marks.marks.get(&pos.instrument) {
                     let market_value = mark.0 * pos.quantity.0;
                     let cost_basis = pos.entry_price.0 * pos.quantity.0;
                     let unrealized = market_value - cost_basis;
-                    
+
                     total_market_value = Money {
                         amount: total_market_value.amount + market_value,
                         currency: Currency::Inr,
@@ -204,7 +206,7 @@ fn portfolio_mtm_valuation_100_positions(bencher: Bencher) {
                 }
             }
         }
-        
+
         black_box((total_market_value, total_unrealized));
     });
 }
@@ -214,10 +216,10 @@ fn portfolio_mtm_valuation_100_positions(bencher: Bencher) {
 #[divan::bench]
 fn tax_summary_generation(bencher: Bencher) {
     use honba_portfolio::TaxSummary;
-    
+
     let mut portfolio = PortfolioState::new(Currency::Inr);
     let mut account = AccountState::new(Currency::Inr, vec![]);
-    
+
     let id = InstrumentId::new(Exchange::Nse, "RELIANCE");
     let pos = HeldPosition::new(
         id.clone(),
@@ -227,7 +229,7 @@ fn tax_summary_generation(bencher: Bencher) {
     );
     account.positions.push(pos);
     portfolio.accounts.insert("bench".to_string(), account);
-    
+
     let fills = [(
         &portfolio.accounts["bench"],
         id.clone(),
@@ -236,34 +238,35 @@ fn tax_summary_generation(bencher: Bencher) {
         Price::from_rupees("2000").unwrap(),
         NaiveDate::from_ymd_opt(2026, 6, 1).unwrap(),
     )];
-    
+
     bencher.bench(|| {
-        let summary = TaxSummary::from_fills(&fills, 
+        let summary = TaxSummary::from_fills(
+            &fills,
             NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
             NaiveDate::from_ymd_opt(2026, 12, 31).unwrap(),
-            &[]
+            &[],
         );
         black_box(summary);
     });
+}
 
 /// Benchmark: Order State Machine - Multiple Operations
 /// Simulates a realistic order lifecycle
 #[divan::bench]
 fn oms_full_lifecycle(bencher: Bencher) {
-    
     bencher.bench_local(|| {
         let mut oms = OrderStateMachine::new();
-        
+
         // Register
         oms.register_order("cl_001".to_string(), PendingNew, Utc::now());
-        
+
         // Transition to New
         let _ = OrderState::transition(PendingNew, New);
-        
+
         // Process fills
         let _ = oms.process_fill("cl_001", 50);
         let _ = oms.process_fill("cl_001", 50);
-        
+
         // Final state check
         let state = oms.get_state("cl_001");
         black_box(state);
@@ -273,27 +276,25 @@ fn oms_full_lifecycle(bencher: Bencher) {
 /// Benchmark: Corporate Action Application
 #[divan::bench]
 fn corporate_action_application(bencher: Bencher) {
-    use honba_portfolio::{
-        CorporateAction, adjust_for_split, adjust_for_bonus, record_dividend
-    };
-    
+    use honba_portfolio::{adjust_for_split, CorporateAction};
+
     let id = InstrumentId::new(Exchange::Nse, "RELIANCE");
-    let mut pos = HeldPosition::new(
+    let pos = HeldPosition::new(
         id.clone(),
         PositionSide::Long,
         Quantity::new(Decimal::from(100)),
         Price::from_rupees("2000").unwrap(),
     );
-    
-    let split = CorporateAction::Split {
+
+    let _split = CorporateAction::Split {
         ratio_numerator: 2,
         ratio_denominator: 1,
         ex_date: NaiveDate::from_ymd_opt(2026, 6, 1).unwrap(),
     };
-    
+
     bencher.bench(|| {
         let mut test_pos = pos.clone();
         adjust_for_split(&mut test_pos, 2, 1);
         black_box(&test_pos);
     });
-}}
+}

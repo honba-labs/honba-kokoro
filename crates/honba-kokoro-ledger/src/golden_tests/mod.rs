@@ -4,11 +4,10 @@
 //! Verifies that Kokoro's calculated STT, GST, Stamp Duty, and Net PnL match the
 //! broker statement down to the exact paisa (₹0.01).
 
-use crate::{TaxCalculator, Transaction, post_transaction};
+use crate::TaxCalculator;
+use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-use chrono::{DateTime, Utc, NaiveDate};
 
 /// Represents a single trade from a broker contract note
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,23 +114,30 @@ impl GoldenTestRunner {
         Ok(self)
     }
 
-    pub fn load_from_csv(mut self, path: &str, broker: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn load_from_csv(
+        mut self,
+        path: &str,
+        broker: &str,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let content = std::fs::read_to_string(path)?;
         let trades = Self::parse_csv(&content, broker)?;
         self.trades.extend(trades);
         Ok(self)
     }
 
-    fn parse_csv(content: &str, broker: &str) -> Result<Vec<ContractNoteTrade>, Box<dyn std::error::Error>> {
+    fn parse_csv(
+        content: &str,
+        broker: &str,
+    ) -> Result<Vec<ContractNoteTrade>, Box<dyn std::error::Error>> {
         let mut trades = Vec::new();
         let mut rdr = csv::Reader::from_reader(content.as_bytes());
-        
+
         for result in rdr.deserialize() {
             let record: CsvRecord = result?;
             let trade = record.into_trade(broker)?;
             trades.push(trade);
         }
-        
+
         Ok(trades)
     }
 
@@ -143,13 +149,13 @@ impl GoldenTestRunner {
         for trade in &self.trades {
             let result = self.compare_trade(trade);
             let passed_this = result.all_match;
-            
+
             if passed_this {
                 passed += 1;
             } else {
                 failed += 1;
             }
-            
+
             results.push(result);
         }
 
@@ -172,27 +178,32 @@ impl GoldenTestRunner {
         let turnover = trade.price * trade.quantity;
         let exchange_calculated = TaxCalculator::sebi_turnover_charges(turnover);
         let sebi_calculated = TaxCalculator::sebi_turnover_charges(turnover);
-        
+
         let stamp_duty_calculated = TaxCalculator::stamp_duty(
             trade.price,
             trade.quantity,
             matches!(trade.side, TradeSide::Buy),
         );
 
-        let gst_calculated = TaxCalculator::GST(
-            trade.brokerage,
-            exchange_calculated,
-            sebi_calculated,
-        );
+        let gst_calculated =
+            TaxCalculator::GST(trade.brokerage, exchange_calculated, sebi_calculated);
 
-        let dp_charges_calculated = if matches!(trade.product_type, ProductType::Delivery) && matches!(trade.side, TradeSide::Sell) {
+        let dp_charges_calculated = if matches!(trade.product_type, ProductType::Delivery)
+            && matches!(trade.side, TradeSide::Sell)
+        {
             TaxCalculator::dp_charges(true)
         } else {
             Decimal::ZERO
         };
 
-        let total_charges_calculated = trade.brokerage + stt_calculated + exchange_calculated + sebi_calculated + stamp_duty_calculated + gst_calculated + dp_charges_calculated;
-        
+        let total_charges_calculated = trade.brokerage
+            + stt_calculated
+            + exchange_calculated
+            + sebi_calculated
+            + stamp_duty_calculated
+            + gst_calculated
+            + dp_charges_calculated;
+
         let net_amount_calculated = if matches!(trade.side, TradeSide::Buy) {
             (trade.price * trade.quantity) + total_charges_calculated
         } else {
@@ -200,7 +211,8 @@ impl GoldenTestRunner {
         };
 
         let stt_match = (stt_calculated - trade.stt_charged).abs() <= self.tolerance_paise;
-        let exchange_match = (exchange_calculated - trade.exchange_charges).abs() <= self.tolerance_paise;
+        let exchange_match =
+            (exchange_calculated - trade.exchange_charges).abs() <= self.tolerance_paise;
         let sebi_match = (sebi_calculated - trade.sebi_charges).abs() <= self.tolerance_paise;
         let stamp_match = (stamp_duty_calculated - trade.stamp_duty).abs() <= self.tolerance_paise;
         let gst_match = (gst_calculated - trade.gst).abs() <= self.tolerance_paise;
@@ -215,7 +227,10 @@ impl GoldenTestRunner {
             (gst_calculated - trade.gst).abs(),
             (dp_charges_calculated - trade.dp_charges).abs(),
             (net_amount_calculated - trade.net_amount).abs(),
-        ].into_iter().max().unwrap_or(Decimal::ZERO);
+        ]
+        .into_iter()
+        .max()
+        .unwrap_or(Decimal::ZERO);
 
         ComparisonResult {
             trade_id: trade.trade_id.clone(),
@@ -242,7 +257,13 @@ impl GoldenTestRunner {
             net_amount_match: net_match,
             net_amount_calculated,
             net_amount_broker: trade.net_amount,
-            all_match: stt_match && exchange_match && sebi_match && stamp_match && gst_match && dp_match && net_match,
+            all_match: stt_match
+                && exchange_match
+                && sebi_match
+                && stamp_match
+                && gst_match
+                && dp_match
+                && net_match,
             max_deviation_paise: max_deviation,
         }
     }
@@ -340,7 +361,10 @@ impl GoldenTestReport {
     }
 
     pub fn net_amount_mismatches(&self) -> Vec<&ComparisonResult> {
-        self.results.iter().filter(|r| !r.net_amount_match).collect()
+        self.results
+            .iter()
+            .filter(|r| !r.net_amount_match)
+            .collect()
     }
 
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
@@ -351,99 +375,160 @@ impl GoldenTestReport {
         println!("╔══════════════════════════════════════════════════════════════╗");
         println!("║           GOLDEN TEST REPORT - BROKER CONTRACT NOTES          ║");
         println!("╠══════════════════════════════════════════════════════════════╣");
-        println!("║ Total trades tested: {:>4}                                    ║", self.total);
-        println!("║ Passed: {:>4}  Failed: {:>4}                                    ║", self.passed, self.failed);
-        println!("║ Pass rate: {:>6.2}%                                          ║", self.pass_rate());
-        println!("║ Tolerance: {} paise (₹0.01)                                  ║", self.tolerance_paise);
+        println!(
+            "║ Total trades tested: {:>4}                                    ║",
+            self.total
+        );
+        println!(
+            "║ Passed: {:>4}  Failed: {:>4}                                    ║",
+            self.passed, self.failed
+        );
+        println!(
+            "║ Pass rate: {:>6.2}%                                          ║",
+            self.pass_rate()
+        );
+        println!(
+            "║ Tolerance: {} paise (₹0.01)                                  ║",
+            self.tolerance_paise
+        );
         println!("╠══════════════════════════════════════════════════════════════╣");
 
         if self.failed > 0 {
             println!("║ FAILED TRADES:                                               ║");
             for result in self.failed_trades() {
-                println!("║  - {} ({}) [{}] - Max deviation: {} paise                    ║", 
-                    result.symbol, result.broker, result.trade_id, result.max_deviation_paise);
-                
+                println!(
+                    "║  - {} ({}) [{}] - Max deviation: {} paise                    ║",
+                    result.symbol, result.broker, result.trade_id, result.max_deviation_paise
+                );
+
                 if !result.stt_match {
-                    println!("║     STT: calc={} broker={} (diff={})                         ║",
-                        result.stt_calculated, result.stt_broker, (result.stt_calculated - result.stt_broker).abs());
+                    println!(
+                        "║     STT: calc={} broker={} (diff={})                         ║",
+                        result.stt_calculated,
+                        result.stt_broker,
+                        (result.stt_calculated - result.stt_broker).abs()
+                    );
                 }
                 if !result.exchange_match {
-                    println!("║     Exchange: calc={} broker={} (diff={})                    ║",
-                        result.exchange_calculated, result.exchange_broker, (result.exchange_calculated - result.exchange_broker).abs());
+                    println!(
+                        "║     Exchange: calc={} broker={} (diff={})                    ║",
+                        result.exchange_calculated,
+                        result.exchange_broker,
+                        (result.exchange_calculated - result.exchange_broker).abs()
+                    );
                 }
                 if !result.sebi_match {
-                    println!("║     SEBI: calc={} broker={} (diff={})                        ║",
-                        result.sebi_calculated, result.sebi_broker, (result.sebi_calculated - result.sebi_broker).abs());
+                    println!(
+                        "║     SEBI: calc={} broker={} (diff={})                        ║",
+                        result.sebi_calculated,
+                        result.sebi_broker,
+                        (result.sebi_calculated - result.sebi_broker).abs()
+                    );
                 }
                 if !result.stamp_duty_match {
-                    println!("║     Stamp: calc={} broker={} (diff={})                       ║",
-                        result.stamp_duty_calculated, result.stamp_duty_broker, (result.stamp_duty_calculated - result.stamp_duty_broker).abs());
+                    println!(
+                        "║     Stamp: calc={} broker={} (diff={})                       ║",
+                        result.stamp_duty_calculated,
+                        result.stamp_duty_broker,
+                        (result.stamp_duty_calculated - result.stamp_duty_broker).abs()
+                    );
                 }
                 if !result.gst_match {
-                    println!("║     GST: calc={} broker={} (diff={})                         ║",
-                        result.gst_calculated, result.gst_broker, (result.gst_calculated - result.gst_broker).abs());
+                    println!(
+                        "║     GST: calc={} broker={} (diff={})                         ║",
+                        result.gst_calculated,
+                        result.gst_broker,
+                        (result.gst_calculated - result.gst_broker).abs()
+                    );
                 }
                 if !result.dp_charges_match {
-                    println!("║     DP: calc={} broker={} (diff={})                          ║",
-                        result.dp_charges_calculated, result.dp_charges_broker, (result.dp_charges_calculated - result.dp_charges_broker).abs());
+                    println!(
+                        "║     DP: calc={} broker={} (diff={})                          ║",
+                        result.dp_charges_calculated,
+                        result.dp_charges_broker,
+                        (result.dp_charges_calculated - result.dp_charges_broker).abs()
+                    );
                 }
                 if !result.net_amount_match {
-                    println!("║     Net: calc={} broker={} (diff={})                         ║",
-                        result.net_amount_calculated, result.net_amount_broker, (result.net_amount_calculated - result.net_amount_broker).abs());
+                    println!(
+                        "║     Net: calc={} broker={} (diff={})                         ║",
+                        result.net_amount_calculated,
+                        result.net_amount_broker,
+                        (result.net_amount_calculated - result.net_amount_broker).abs()
+                    );
                 }
             }
         }
-        
+
         println!("╚══════════════════════════════════════════════════════════════╝");
     }
-    }
+}
 
 /// Generate sample CSV for testing
 pub fn generate_sample_csv(_broker: &str, count: usize) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
-    
+
     wtr.write_record(&[
-        "trade_id", "trade_date", "symbol", "exchange", "side", 
-        "quantity", "price", "product_type", "brokerage", "stt",
-        "exchange_charges", "sebi_charges", "stamp_duty", "gst", 
-        "dp_charges", "net_amount", "settle_date"
-    ]).unwrap();
-    
+        "trade_id",
+        "trade_date",
+        "symbol",
+        "exchange",
+        "side",
+        "quantity",
+        "price",
+        "product_type",
+        "brokerage",
+        "stt",
+        "exchange_charges",
+        "sebi_charges",
+        "stamp_duty",
+        "gst",
+        "dp_charges",
+        "net_amount",
+        "settle_date",
+    ])
+    .unwrap();
+
     for i in 0..count {
-        let trade_id = format!("TRD{:08}", i);
-        let symbol = if i % 2 == 0 { "RELIANCE" } else { "TCS" };
-        let exchange_val = if i % 3 == 0 { "NSE" } else { "BSE" };
-        let side_val = if i % 2 == 0 { "BUY" } else { "SELL" };
-        let product_type_val = if i % 4 == 0 { "DELIVERY" } else { "INTRADAY" };
-        
+        let _trade_id = format!("TRD{:08}", i);
+        let _symbol = if i % 2 == 0 { "RELIANCE" } else { "TCS" };
+        let _exchange_val = if i % 3 == 0 { "NSE" } else { "BSE" };
+        let _side_val = if i % 2 == 0 { "BUY" } else { "SELL" };
+        let _product_type_val = if i % 4 == 0 { "DELIVERY" } else { "INTRADAY" };
+
         let quantity = Decimal::from(100 + (i % 100) as i64);
         let price = Decimal::from(150000 + (i * 100) as i64);
-        let quantity_int = Decimal::from(100 + (i % 100) as i64);
+        let _quantity_int = Decimal::from(100 + (i % 100) as i64);
         let price_val = Decimal::from(150000 + (i * 100) as i64);
         let notional = price_val * quantity;
-        
+
         let stt = if true {
             (price_val * quantity / Decimal::from(1000)).floor()
         } else {
             (price_val * quantity / Decimal::from(4000)).floor()
         };
-        
+
         let exchange_charges = (notional * Decimal::from(10) / Decimal::from(10_000_000)).floor();
         let sebi_charges = exchange_charges;
         let stamp_duty = (notional * Decimal::from(15) / Decimal::from(100_000)).floor();
-        let gst = ((Decimal::from(2000) + Decimal::ZERO + Decimal::ZERO) * Decimal::from(18) / Decimal::from(100)).floor();
+        let gst = ((Decimal::from(2000) + Decimal::ZERO + Decimal::ZERO) * Decimal::from(18)
+            / Decimal::from(100))
+        .floor();
         let dp_charges = Decimal::ZERO;
-        
+
         let brokerage = Decimal::from(2000);
-        let total_charges = brokerage + stt + exchange_charges + sebi_charges + stamp_duty + gst + dp_charges;
+        let total_charges =
+            brokerage + stt + exchange_charges + sebi_charges + stamp_duty + gst + dp_charges;
         let net_amount = (price_val * quantity) + total_charges;
-        
-        let settle = (chrono::Utc::now() + chrono::Duration::days(2)).format("%Y-%m-%d").to_string();
-        
+
+        let settle = (chrono::Utc::now() + chrono::Duration::days(2))
+            .format("%Y-%m-%d")
+            .to_string();
+
         let symbol_str = (if i % 2 == 0 { "RELIANCE" } else { "TCS" }).to_string();
         let exchange_str = (if i % 3 == 0 { "NSE" } else { "BSE" }).to_string();
         let side_str = (if i % 2 == 0 { "BUY" } else { "SELL" }).to_string();
-        
+
         wtr.write_record(&[
             &format!("TRD{:08}", i),
             &chrono::Utc::now().to_rfc3339(),
@@ -462,7 +547,8 @@ pub fn generate_sample_csv(_broker: &str, count: usize) -> String {
             &"0".to_string(),
             &net_amount.to_string(),
             &settle,
-        ]).unwrap();
+        ])
+        .unwrap();
     }
 
     String::from_utf8(wtr.into_inner().unwrap()).unwrap()

@@ -4,24 +4,23 @@
 // The engine never places an order directly: it validates, prices, and forwards
 // order requests to brokers (ADR 0032 §7).
 
-use chrono::{DateTime, Utc, NaiveDate};
+use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use std::collections::BTreeMap;
 use std::str::FromStr;
-use thiserror::Error;
 use uuid::Uuid;
 
-// —‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑─
+// ——————————————————————————————————————————————————
 // Core type definitions
-// —‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑─
+// ————————————————————————————————————————————————
 
 /// Indian stock exchange enumeration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Exchange {
-    Nse,   // National Stock Exchange India
-    Bse,   // Bombay Stock Exchange India
-    Nfo,   // National Futures Exchange (derivatives)
-    Mcx,   // Multi Commodity Exchange India
+    Nse, // National Stock Exchange India
+    Bse, // Bombay Stock Exchange India
+    Nfo, // National Futures Exchange (derivatives)
+    Mcx, // Multi Commodity Exchange India
 }
 
 /// Instrument identifier: exchange + symbol.
@@ -43,8 +42,8 @@ impl InstrumentId {
 /// Order side enumeration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OrderSide {
-    Long,   // Buy / Long position
-    Short,  // Sell / Short position
+    Long,  // Buy / Long position
+    Short, // Sell / Short position
 }
 
 /// Order type enumeration.
@@ -59,18 +58,18 @@ pub enum OrderType {
 /// Time in force specification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TimeInForce {
-    GTC,     // Good 'Til Cancelled
-    IOC,     // Immediate or Cancel
-    FOK,     // Fill or Kill
-    Day,     // Day order
-    GTT,     // Good 'Til Time
-    GFD,     // Good for Day
+    GTC, // Good 'Til Cancelled
+    IOC, // Immediate or Cancel
+    FOK, // Fill or Kill
+    Day, // Day order
+    GTT, // Good 'Til Time
+    GFD, // Good for Day
 }
 
 /// Currency enumeration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Currency {
-    Inr,   // Indian Rupees
+    Inr, // Indian Rupees
 }
 
 /// Money type with exact decimal precision.
@@ -212,20 +211,20 @@ pub struct OrderAck {
     pub fees: Money,
 }
 
-// —‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑
+// ———————————————————————————————————————————————————————
 // Order state machine (Phase 1 foundation)
-// —‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑
+// ——————————————————————————————————————————————————————
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OrderState {
-    PendingNew,   // Order submitted, awaiting acceptance
-    New,          // Order accepted by exchange
+    PendingNew,      // Order submitted, awaiting acceptance
+    New,             // Order accepted by exchange
     PartiallyFilled, // Order partially filled
-    Filled,       // Order completely filled
-    PendingCancel, // Cancellation requested
-    Cancelled,    // Order cancelled
-    Rejected,     // Order rejected by exchange
-    Expired,      // Order expired without execution
+    Filled,          // Order completely filled
+    PendingCancel,   // Cancellation requested
+    Cancelled,       // Order cancelled
+    Rejected,        // Order rejected by exchange
+    Expired,         // Order expired without execution
 }
 
 impl OrderState {
@@ -245,15 +244,19 @@ impl OrderState {
                 | (PartiallyFilled, Cancelled)
                 | (New, Filled)  // extended: New -> Filled
                 | (PendingCancel, Cancelled)
-                | (Expired, Expired)  // terminal states are absorbing
+                | (Expired, Expired) // terminal states are absorbing
         );
-        if ok { Ok(to) } else { Err(TransitionError::Illegal { from, to }) }
+        if ok {
+            Ok(to)
+        } else {
+            Err(TransitionError::Illegal { from, to })
+        }
     }
 }
 
-// —‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑
+// —————————————————————————————————————————————————————————————————
 // Transition error definitions
-// —‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑
+// —————————————————————————————————————————
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum TransitionError {
@@ -265,9 +268,9 @@ pub enum TransitionError {
     DuplicateClientOrderId { client_order_id: String },
 }
 
-// —‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑
+// —————————————————————————————————————————————————————————————————
 // Order state machine managing order lifecycle with idempotency and fill reconciliation
-// —‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑
+// ——————————————————————————————————————————————————————————————
 
 /// Order state machine managing order lifecycle with idempotency and fill reconciliation.
 /// Supports all SEBI-mandated order states and transition rules.
@@ -290,10 +293,7 @@ impl OrderStateMachine {
 
     /// Check idempotency: if client_order_id already exists, return error.
     /// If new, register it in the given state and return Ok.
-    pub fn check_idempotency(
-        &self,
-        client_order_id: &str,
-    ) -> Result<(), TransitionError> {
+    pub fn check_idempotency(&self, client_order_id: &str) -> Result<(), TransitionError> {
         if self.orders.contains_key(client_order_id) {
             Err(TransitionError::DuplicateClientOrderId {
                 client_order_id: client_order_id.to_string(),
@@ -304,45 +304,58 @@ impl OrderStateMachine {
     }
 
     /// Register a new order with the given client_order_id and initial state.
-    pub fn register_order(&mut self, client_order_id: String, initial_state: OrderState, created_at: DateTime<Utc>) {
-        self.orders.insert(client_order_id.clone(), (initial_state, created_at));
+    pub fn register_order(
+        &mut self,
+        client_order_id: String,
+        initial_state: OrderState,
+        created_at: DateTime<Utc>,
+    ) {
+        self.orders
+            .insert(client_order_id.clone(), (initial_state, created_at));
         self.cumulative_fills.insert(client_order_id, 0);
     }
 
     /// Process a fill event: add to cumulative fill quantity, transition state.
     /// Returns the updated state and whether the order is now fully filled.
-    pub fn process_fill(&mut self, client_order_id: &str, fill_quantity: u64) -> (OrderState, bool) {
+    pub fn process_fill(
+        &mut self,
+        client_order_id: &str,
+        fill_quantity: u64,
+    ) -> (OrderState, bool) {
         let cumulative = *self.cumulative_fills.get(client_order_id).unwrap_or(&0);
         let new_cumulative = cumulative.saturating_add(fill_quantity);
-        self.cumulative_fills.insert(client_order_id.to_string(), new_cumulative);
+        self.cumulative_fills
+            .insert(client_order_id.to_string(), new_cumulative);
 
-        let (state, fully_filled) = self.orders.get_mut(client_order_id).map_or((OrderState::Rejected, false), |s| {
-            let (st, _) = s;
-            let mut new_state = *st;
-            let mut local_fully_filled = false;
+        let (state, fully_filled) =
+            self.orders
+                .get_mut(client_order_id)
+                .map_or((OrderState::Rejected, false), |s| {
+                    let (st, _) = s;
+                    let mut new_state = *st;
 
-            // Accumulate fills towards fully filled
-            if *st == OrderState::PendingNew {
-                new_state = OrderState::New;
-            }
-            if *st == OrderState::New {
-                // Track partial fills; keep open until cumulative >= original quantity
-                // (original quantity tracked externally; here we just transition new -> partially filled)
-                if new_cumulative > 0 {
-                    new_state = OrderState::PartiallyFilled;
-                }
-            }
-            if new_cumulative > 0 && *st != OrderState::Filled {
-                new_state = OrderState::PartiallyFilled;
-            }
-            // If fully filled (cumulative matches original, tracked externally), transition to Filled
-            local_fully_filled = new_cumulative > 0 && new_state != OrderState::Filled;
-            if local_fully_filled {
-                new_state = OrderState::Filled;
-            }
-            *st = new_state;
-            (new_state, local_fully_filled)
-        });
+                    // Accumulate fills towards fully filled
+                    if *st == OrderState::PendingNew {
+                        new_state = OrderState::New;
+                    }
+                    if *st == OrderState::New {
+                        // Track partial fills; keep open until cumulative >= original quantity
+                        // (original quantity tracked externally; here we just transition new -> partially filled)
+                        if new_cumulative > 0 {
+                            new_state = OrderState::PartiallyFilled;
+                        }
+                    }
+                    if new_cumulative > 0 && *st != OrderState::Filled {
+                        new_state = OrderState::PartiallyFilled;
+                    }
+                    // If fully filled (cumulative matches original, tracked externally), transition to Filled
+                    let local_fully_filled = new_cumulative > 0 && new_state != OrderState::Filled;
+                    if local_fully_filled {
+                        new_state = OrderState::Filled;
+                    }
+                    *st = new_state;
+                    (new_state, local_fully_filled)
+                });
 
         (state, fully_filled)
     }
@@ -361,7 +374,10 @@ impl OrderStateMachine {
     pub fn is_terminal(&self, client_order_id: &str) -> bool {
         matches!(
             self.orders.get(client_order_id).map(|(s, _)| *s),
-            Some(OrderState::Filled) | Some(OrderState::Cancelled) | Some(OrderState::Rejected) | Some(OrderState::Expired)
+            Some(OrderState::Filled)
+                | Some(OrderState::Cancelled)
+                | Some(OrderState::Rejected)
+                | Some(OrderState::Expired)
         )
     }
 
@@ -371,9 +387,9 @@ impl OrderStateMachine {
     }
 }
 
-// —‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑
+// —————————————————————————————————————————————————————————————————
 // Supporting types
-// —‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑
+// ——————————————————————————————————————————————————————
 
 /// Market data snapshot.
 #[derive(Debug, Clone)]
@@ -440,11 +456,11 @@ pub struct CostBasisLot {
     pub side: OrderSide,
 }
 
-// —‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑
+// ———————————————————————————————————————————————————————————————————————
 
-// —‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑
+// ———————————————————————————————————————————————————————————————————————
 // Unit tests
-// —‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑
+// ————————————————————————————————————————————————————————————————————
 
 #[cfg(test)]
 mod tests {
@@ -496,21 +512,13 @@ mod tests {
 
     #[test]
     fn test_risk_check_approves() {
-        let result = validate_order_params(
-            10,
-            Decimal::from(0i64),
-            Decimal::from(50000i64),
-        );
+        let result = validate_order_params(10, Decimal::from(0i64), Decimal::from(50000i64));
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_validate_order_params() {
-        let result = validate_order_params(
-            10,
-            Decimal::from(0i64),
-            Decimal::from(50000i64),
-        );
+        let result = validate_order_params(10, Decimal::from(0i64), Decimal::from(50000i64));
         assert!(result.is_ok());
     }
 
@@ -522,7 +530,8 @@ mod tests {
             OrderType::Market,
             TimeInForce::Day,
             None,
-        ).await;
+        )
+        .await;
         match result {
             Ok(ack) => {
                 assert_eq!(ack.status, OrderStatus::Pending);
@@ -573,9 +582,9 @@ mod tests {
         assert_eq!(id.symbol, "RELIANCE");
     }
 
-    // —‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑─
+    // ————————————————————————————————————————
     // New: OrderStateMachine invariant tests
-    // —‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑─
+    // ———————————————————————————————————
 
     #[test]
     fn test_order_state_machine_terminal_absorbing() {
@@ -605,7 +614,11 @@ mod tests {
         // Submit fills that should not exceed reasonable bounds
         // (In a full proptest, we'd vary the quantities; here we verify basic boundedness)
         let (state, fully_filled) = oms.process_fill("clOrd4", 5);
-        assert!(fully_filled == false || state == OrderState::PartiallyFilled || state == OrderState::Filled);
+        assert!(
+            fully_filled == false
+                || state == OrderState::PartiallyFilled
+                || state == OrderState::Filled
+        );
         let cumulative = oms.get_cumulative_fill("clOrd4");
         assert_eq!(cumulative, Some(5));
 
@@ -630,7 +643,10 @@ mod tests {
             let (state, _) = oms.process_fill(cid, 1);
             // Each order should transition from PendingNew -> Open/PartiallyFilled
             assert!(
-                matches!(state, OrderState::New | OrderState::PartiallyFilled | OrderState::Filled),
+                matches!(
+                    state,
+                    OrderState::New | OrderState::PartiallyFilled | OrderState::Filled
+                ),
                 "Order {} should transition, got {:?}",
                 cid,
                 state
@@ -646,11 +662,7 @@ mod tests {
 }
 
 /// Validate order parameters.
-pub fn validate_order_params(
-    qty: u64,
-    pnl: Decimal,
-    max_loss: Decimal,
-) -> Result<(), String> {
+pub fn validate_order_params(qty: u64, pnl: Decimal, max_loss: Decimal) -> Result<(), String> {
     if qty > 1000000 {
         return Err("Quantity exceeds maximum per order".to_string());
     }
@@ -676,9 +688,7 @@ pub async fn submit_order(
 }
 
 /// Cancel an existing order
-pub async fn cancel_order(
-    oid: String,
-) -> Result<OrderAck, OrderError> {
+pub async fn cancel_order(oid: String) -> Result<OrderAck, OrderError> {
     Ok(OrderAck {
         order_id: oid,
         client_order_id: format!("CLIENT_{}", Uuid::new_v4()),
@@ -704,11 +714,7 @@ pub async fn cancel_order(
 }
 
 /// Process a fill report from the broker
-pub fn process_fill_report(
-    fq: u64,
-    commission: Money,
-    fees: Money,
-) -> Result<(), OrderError> {
+pub fn process_fill_report(fq: u64, commission: Money, _fees: Money) -> Result<(), OrderError> {
     if fq == 0 {
         return Err(OrderError::InvalidParameters);
     }

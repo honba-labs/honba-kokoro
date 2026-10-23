@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
-[lib]
-name = "honba_kokoro_benches"
+[[bench]]
+name = "valuation_benchmarks"
 path = "valuation_benchmarks.rs"
 harness = false
 

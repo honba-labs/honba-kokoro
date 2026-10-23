@@ -4,15 +4,7 @@
 //! Usage: cargo run --bench golden_tests -- [OPTIONS]
 
 use clap::Parser;
-use honba_kokoro_ledger::golden_tests::{
-    ContractNoteTrade, GoldenTestRunner, GoldenTestReport, generate_sample_csv,
-    TradeSide, ProductType,
-    test_zerodha_contract_note_delivery_buy_trade,
-    test_zerodha_contract_note_intraday_sell_trade,
-    test_upstox_contract_note_delivery_buy_trade,
-    test_upstox_contract_note_option_buy_trade,
-    test_total_charges_match_broker_note_trade,
-};
+use honba_kokoro_ledger::golden_tests::{GoldenTestRunner, generate_sample_csv};
 use rust_decimal::Decimal;
 use std::fs;
 use std::path::PathBuf;
@@ -61,7 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(count) = args.generate {
         let broker = args.broker.as_deref().unwrap_or("zerodha");
         let csv = generate_sample_csv(broker, count);
-        
+
         if let Some(output) = args.output {
             std::fs::write(&output, csv)?;
             println!("Generated {} sample trades to {}", count, output.display());
@@ -71,23 +63,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let mut runner = GoldenTestRunner::new()
-        .with_tolerance(Decimal::from(args.tolerance));
+    let mut runner = GoldenTestRunner::new().with_tolerance(Decimal::from(args.tolerance));
 
     // Load trades from input file if provided
     if let Some(ref input_path) = args.input {
-        let ext = input_path.extension().and_then(|s| s.to_str()).unwrap_or("");
-        
+        let ext = input_path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+
         if ext == "csv" {
-            let broker = args.broker.as_deref().unwrap_or("zerodha");
-            let mut runner_with_trades = GoldenTestRunner::new()
-                .with_tolerance(rust_decimal::Decimal::from(args.tolerance));
-            runner_with_trades = runner_with_trades.load_from_csv(&input_path.to_string_lossy(), "zerodha")?;
+            let _broker = args.broker.as_deref().unwrap_or("zerodha");
+            let mut runner_with_trades =
+                GoldenTestRunner::new().with_tolerance(rust_decimal::Decimal::from(args.tolerance));
+            runner_with_trades =
+                runner_with_trades.load_from_csv(&input_path.to_string_lossy(), "zerodha")?;
             runner = runner_with_trades;
         } else if ext == "json" {
-            let mut runner_with_trades = GoldenTestRunner::new()
-                .with_tolerance(rust_decimal::Decimal::from(args.tolerance));
-            runner_with_trades = runner_with_trades.load_from_json(&input_path.to_string_lossy())?;
+            let mut runner_with_trades =
+                GoldenTestRunner::new().with_tolerance(rust_decimal::Decimal::from(args.tolerance));
+            runner_with_trades =
+                runner_with_trades.load_from_json(&input_path.to_string_lossy())?;
             runner = runner_with_trades;
         } else {
             eprintln!("Unsupported file format. Use .csv or .json");
@@ -99,17 +95,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // For now, run with built-in test trades if no input provided
     if args.input.is_none() {
         // Run with built-in test trades from the test module
-        let mut runner_with_trades = GoldenTestRunner::new()
-            .with_tolerance(rust_decimal::Decimal::from(args.tolerance));
-        
+        let mut runner_with_trades =
+            GoldenTestRunner::new().with_tolerance(rust_decimal::Decimal::from(args.tolerance));
+
         // Add the built-in test trades
         runner_with_trades = runner_with_trades
-            .add_trade(honba_kokoro_ledger::golden_tests::test_zerodha_contract_note_delivery_buy_trade())
-            .add_trade(honba_kokoro_ledger::golden_tests::test_zerodha_contract_note_intraday_sell_trade())
-            .add_trade(honba_kokoro_ledger::golden_tests::test_upstox_contract_note_delivery_buy_trade())
-            .add_trade(honba_kokoro_ledger::golden_tests::test_upstox_contract_note_option_buy_trade())
-            .add_trade(honba_kokoro_ledger::golden_tests::test_total_charges_match_broker_note_trade());
-        
+            .add_trade(
+                honba_kokoro_ledger::golden_tests::test_zerodha_contract_note_delivery_buy_trade(),
+            )
+            .add_trade(
+                honba_kokoro_ledger::golden_tests::test_zerodha_contract_note_intraday_sell_trade(),
+            )
+            .add_trade(
+                honba_kokoro_ledger::golden_tests::test_upstox_contract_note_delivery_buy_trade(),
+            )
+            .add_trade(
+                honba_kokoro_ledger::golden_tests::test_upstox_contract_note_option_buy_trade(),
+            )
+            .add_trade(
+                honba_kokoro_ledger::golden_tests::test_total_charges_match_broker_note_trade(),
+            );
+
         runner = runner_with_trades;
     }
 
@@ -124,7 +130,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Output JSON if requested
     if args.json || args.output.is_some() {
         let json = report.to_json()?;
-        
+
         if let Some(output) = args.output {
             fs::write(output, json)?;
             println!("Results written to file");
