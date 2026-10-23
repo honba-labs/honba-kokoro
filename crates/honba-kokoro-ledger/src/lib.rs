@@ -111,6 +111,216 @@ impl TaxCalculator {
     }
 }
 
+/// Exchange selection for turnover-fee computation.
+/// Local to `honba-kokoro-ledger` (this crate must not depend on `honba_core`);
+/// distinct from any `Exchange` type a downstream crate may define.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Exchange {
+    Nse,
+    Bse,
+}
+
+/// Canonical itemized statutory fee breakdown — the result DTO for
+/// [`TaxCalculator::compute_charges`]. Mirrors the shape of
+/// `honba-ya-backtest::costs::IndianFeeBreakdown` (per-charge fields +
+/// `total()` + `add_assign()`), kept here so kokoro is the single
+/// canonical source of Indian statutory cost math.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct TaxBreakdown {
+    pub brokerage: Decimal,
+    pub stt: Decimal,
+    pub stamp_duty: Decimal,
+    pub exchange_turnover: Decimal,
+    pub sebi_turnover: Decimal,
+    pub gst: Decimal,
+    pub dp_charge: Decimal,
+}
+
+impl TaxBreakdown {
+    /// Total aggregate transaction cost in INR.
+    pub fn total(&self) -> Decimal {
+        self.brokerage
+            + self.stt
+            + self.stamp_duty
+            + self.exchange_turnover
+            + self.sebi_turnover
+            + self.gst
+            + self.dp_charge
+    }
+
+    /// Accumulate another breakdown into self.
+    pub fn add_assign(&mut self, other: &TaxBreakdown) {
+        self.brokerage += other.brokerage;
+        self.stt += other.stt;
+        self.stamp_duty += other.stamp_duty;
+        self.exchange_turnover += other.exchange_turnover;
+        self.sebi_turnover += other.sebi_turnover;
+        self.gst += other.gst;
+        self.dp_charge += other.dp_charge;
+    }
+}
+
+/// Canonical rounding rule for every NEW `TaxCalculator` method below:
+/// round-to-nearest-2dp (banker's / round-half-to-even via
+/// `Decimal::round_dp`), matching `honba-ya-backtest`'s
+/// `IndianCostModel::round_inr` exactly. This is a deliberate departure
+/// from the legacy (floor-based) methods further down in this file, which
+/// are left untouched for backward compatibility with their existing
+/// inline tests (see AGENTS.md exception for this crate).
+fn round_inr(amount: Decimal) -> Decimal {
+    amount.round_dp(2)
+}
+
+impl TaxCalculator {
+    /// Brokerage: percentage of notional, capped at a flat ceiling.
+    /// Rates mirror `IndianCostConfig::default()` in `honba-ya-backtest`:
+    /// 0.03% of notional, capped at ₹20 per executed order.
+    pub fn brokerage(notional: Decimal) -> Decimal {
+        if notional <= Decimal::ZERO {
+            return Decimal::ZERO;
+        }
+        let raw = notional * Decimal::new(3, 4); // 0.0003 = 0.03%
+        round_inr(raw.min(Decimal::from(20)))
+    }
+
+    /// NSE cash-segment exchange turnover charge: 0.00297% of notional.
+    pub fn nse_turnover_charges(turnover: Decimal) -> Decimal {
+        if turnover <= Decimal::ZERO {
+            return Decimal::ZERO;
+        }
+        round_inr(turnover * Decimal::new(297, 7)) // 0.0000297
+    }
+
+    /// BSE cash-segment exchange turnover charge: 0.00375% of notional.
+    pub fn bse_turnover_charges(turnover: Decimal) -> Decimal {
+        if turnover <= Decimal::ZERO {
+            return Decimal::ZERO;
+        }
+        round_inr(turnover * Decimal::new(375, 7)) // 0.0000375
+    }
+
+    /// SEBI regulatory turnover fee: ₹10 per crore of turnover.
+    /// Canonical (round-to-nearest) counterpart of the legacy
+    /// `sebi_turnover_charges` (which floors and is left untouched).
+    pub fn sebi_fee(turnover: Decimal) -> Decimal {
+        if turnover <= Decimal::ZERO {
+            return Decimal::ZERO;
+        }
+        round_inr(turnover * Decimal::new(1, 6)) // 0.000001
+    }
+
+    /// Securities Transaction Tax, correctly gated by side AND product type.
+    ///
+    /// Fixes the real bug in the legacy `stt(delivery: bool, ...)`: that
+    /// method has no side parameter and charges the intraday rate
+    /// unconditionally whenever `delivery == false`, including on BUY
+    /// orders. Real STT (and `IndianCostModel`) only ever charges
+    /// Intraday/Futures/Options STT on the SELL leg; Delivery STT is
+    /// charged on BOTH legs.
+    pub fn stt_charge(side: TradeSide, product: ProductType, notional: Decimal) -> Decimal {
+        if notional <= Decimal::ZERO {
+            return Decimal::ZERO;
+        }
+        let is_sell = side == TradeSide::Sell;
+        let rate = match product {
+            ProductType::Delivery => Decimal::new(1, 3), // 0.1%, both sides
+            ProductType::Intraday if is_sell => Decimal::new(25, 5), // 0.025%
+            ProductType::Futures if is_sell => Decimal::new(125, 6), // 0.0125%
+            ProductType::Options if is_sell => Decimal::new(625, 6), // 0.0625%
+            _ => return Decimal::ZERO,
+        };
+        round_inr(notional * rate)
+    }
+
+    /// Stamp duty, gated by product type. Applies on the BUY side only
+    /// (per the Indian Stamp Act amendment effective July 2020), with
+    /// rates that vary by product — the legacy `stamp_duty` only ever
+    /// implemented the Delivery-buy rate.
+    pub fn stamp_duty_charge(side: TradeSide, product: ProductType, notional: Decimal) -> Decimal {
+        if notional <= Decimal::ZERO || side == TradeSide::Sell {
+            return Decimal::ZERO;
+        }
+        let rate = match product {
+            ProductType::Delivery => Decimal::new(15, 5),  // 0.015%
+            ProductType::Intraday => Decimal::new(3, 5),   // 0.003%
+            ProductType::Futures => Decimal::new(2, 5),    // 0.002%
+            ProductType::Options => Decimal::new(3, 5),    // 0.003%
+        };
+        round_inr(notional * rate)
+    }
+
+    /// Depository Participant charge: a flat fee on the first Delivery
+    /// sell of the day for a given scrip. Zero on buys, zero on
+    /// non-Delivery products, zero on subsequent sells of the same scrip
+    /// the same day. Unlike the legacy `dp_charges`, this returns the RAW
+    /// flat fee (no GST pre-folded in) — GST on the DP charge is applied
+    /// via `gst_charge`'s taxable base instead, matching `IndianCostModel`.
+    pub fn dp_charge(side: TradeSide, product: ProductType, is_first_sell_of_day: bool) -> Decimal {
+        if side == TradeSide::Sell && product == ProductType::Delivery && is_first_sell_of_day {
+            Decimal::new(1350, 2) // ₹13.50
+        } else {
+            Decimal::ZERO
+        }
+    }
+
+    /// GST: 18% on (brokerage + exchange turnover + SEBI turnover + DP charge).
+    ///
+    /// Explicit judgment call: the legacy `GST(brokerage, exchange_charges,
+    /// sebi_fees)` omits `dp_charge` from the taxable base, but
+    /// `IndianCostModel` includes it (`gst_taxable = brokerage +
+    /// exchange_turnover + sebi_turnover + dp_charge`). This canonical
+    /// method adopts `IndianCostModel`'s composition (dp_charge IS part of
+    /// the GST base) for research-live parity.
+    pub fn gst_charge(
+        brokerage: Decimal,
+        exchange_turnover: Decimal,
+        sebi_turnover: Decimal,
+        dp_charge: Decimal,
+    ) -> Decimal {
+        let taxable = brokerage + exchange_turnover + sebi_turnover + dp_charge;
+        round_inr(taxable * Decimal::new(18, 2)) // 18%
+    }
+
+    /// Single entry point: compute every statutory charge for one fill.
+    /// `price` and `quantity` are both plain rupee-denominated `Decimal`
+    /// values (consistent with `honba_core::Price`/`Quantity`, not paise);
+    /// `notional = price * quantity`.
+    pub fn compute_charges(
+        side: TradeSide,
+        product: ProductType,
+        exchange: Exchange,
+        price: Decimal,
+        quantity: Decimal,
+        is_first_sell_of_day: bool,
+    ) -> TaxBreakdown {
+        if price <= Decimal::ZERO || quantity <= Decimal::ZERO {
+            return TaxBreakdown::default();
+        }
+        let notional = price * quantity;
+
+        let brokerage = Self::brokerage(notional);
+        let stt = Self::stt_charge(side, product, notional);
+        let stamp_duty = Self::stamp_duty_charge(side, product, notional);
+        let exchange_turnover = match exchange {
+            Exchange::Nse => Self::nse_turnover_charges(notional),
+            Exchange::Bse => Self::bse_turnover_charges(notional),
+        };
+        let sebi_turnover = Self::sebi_fee(notional);
+        let dp_charge = Self::dp_charge(side, product, is_first_sell_of_day);
+        let gst = Self::gst_charge(brokerage, exchange_turnover, sebi_turnover, dp_charge);
+
+        TaxBreakdown {
+            brokerage,
+            stt,
+            stamp_duty,
+            exchange_turnover,
+            sebi_turnover,
+            gst,
+            dp_charge,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
