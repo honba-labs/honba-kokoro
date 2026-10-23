@@ -34,6 +34,29 @@ impl ClearingCalendar {
         cal
     }
 
+    /// Build a clearing calendar from an injected list of holiday dates,
+    /// instead of this crate's own hardcoded NSE table (used by `new()`).
+    ///
+    /// This lets the real exchange holiday *data* stay owned elsewhere
+    /// (e.g. `honba-ya-backtest::calendar::NseTradingCalendar`, which seeds
+    /// real NSE holidays and Muhurat trading sessions) without
+    /// `honba-kokoro-portfolio` taking a dependency in that direction or
+    /// duplicating/hardcoding a potentially-diverging copy of the same
+    /// table. Weekend exclusion still applies on top of the injected list.
+    /// Settlement holidays are treated identically to trading holidays,
+    /// same as `new()`.
+    pub fn with_holidays(holidays: &[NaiveDate]) -> Self {
+        let mut cal = Self {
+            trading_holidays: HashMap::new(),
+            settlement_holidays: HashMap::new(),
+        };
+        for &date in holidays {
+            cal.trading_holidays.entry(date.year()).or_default().push(date);
+        }
+        cal.settlement_holidays = cal.trading_holidays.clone();
+        cal
+    }
+
     /// Add NSE trading and settlement holidays for 2024-2026.
     fn add_nse_holidays_2024_2026(&mut self) {
         // 2024 NSE Holidays
