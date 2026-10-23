@@ -855,20 +855,48 @@ pub fn apply_fill(
                 };
                 pos.quantity = Quantity::new(pos.quantity.0 - fill_qty_dec);
             } else {
-                // Full fill + reverse: close position and reverse
-                let pnl_on_close = (fill_price_dec - entry_price_dec) * pos.quantity.0;
-                let reverse_qty = fill_qty_dec - pos.quantity.0;
-                let reverse_pnl = (fill_price_dec - entry_price_dec) * (fill_qty_dec - pos.quantity.0);
+                // Full close + reverse: the existing long is closed entirely
+                // (realize PnL on ONLY that closed quantity), and a new SHORT
+                // leg is opened for the overfilled remainder at the fill
+                // price. The remainder is a fresh unrealized position, not
+                // already-realized PnL.
+                let closed_qty = pos.quantity.0;
+                let pnl_on_close = (fill_price_dec - entry_price_dec) * closed_qty;
+                let reverse_qty = fill_qty_dec - closed_qty;
                 realized_pnl = Money {
-                    amount: (pnl_on_close + reverse_pnl).max(Decimal::ZERO),
+                    amount: pnl_on_close,
                     currency: Currency::Inr,
                 };
-                pos.quantity = Quantity::new(Decimal::ZERO);
+                pos.side = PositionSide::Short;
+                pos.quantity = Quantity::new(reverse_qty);
+                pos.entry_price = fill_price;
                 pos.entry_lot_ids.clear();
             }
         }
         PositionSide::Short => {
-            realized_pnl = Money::inr(Decimal::from(0i64));
+            if fill_qty_dec <= pos.quantity.0 {
+                // Short realized PnL is symmetric to Long: profit when the
+                // buy-back (fill_price) is BELOW the entry (short-sale) price.
+                let pnl = (entry_price_dec - fill_price_dec) * fill_qty_dec;
+                realized_pnl = Money {
+                    amount: pnl,
+                    currency: Currency::Inr,
+                };
+                pos.quantity = Quantity::new(pos.quantity.0 - fill_qty_dec);
+            } else {
+                // Full close + reverse: symmetric to the Long case above.
+                let closed_qty = pos.quantity.0;
+                let pnl_on_close = (entry_price_dec - fill_price_dec) * closed_qty;
+                let reverse_qty = fill_qty_dec - closed_qty;
+                realized_pnl = Money {
+                    amount: pnl_on_close,
+                    currency: Currency::Inr,
+                };
+                pos.side = PositionSide::Long;
+                pos.quantity = Quantity::new(reverse_qty);
+                pos.entry_price = fill_price;
+                pos.entry_lot_ids.clear();
+            }
         }
     }
 
