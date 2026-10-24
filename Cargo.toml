@@ -16,7 +16,7 @@ repository = "https://github.com/your-org/honba-kokoro"
 
 [workspace.dependencies]
 honba-core = { path = "../honba-core" }
- honba-kokoro-oms = { path = "../honba-kokoro-oms" }
+honba-kokoro-oms = { path = "../honba-kokoro-oms" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
@@ -34,3 +34,16 @@ clap = { version = "4", features = ["derive"] }
 hyper = "1"
 proptest = "1.12"
 divan = "0.1"
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+
+[profile.prod]
+inherits = "release"
+lto = true
+codegen-units = 1
