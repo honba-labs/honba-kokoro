@@ -1,0 +1,12 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 8b505222623077dd9d307d41074a99e9ff62582a0bd50b9bf1c22530b5de1b9a # shrinks to debit_amt = 100, diff = 1
+cc 4e9c5563fab341c188b39aa0516ef5144b0a1cb501dff368583c4b86939ebe65 # shrinks to opening_capital_lakhs = 10, actions = [Sell { price_rupees: 10, quantity: 1, cost_basis_rupees: 11, is_delivery: false, exchange: Bse, is_first_sell: false }]
+cc 5fd92245a1be4f8e20e390433dd70eb75e6c80af337507a9fb09c743bec7b757 # shrinks to opening_capital_lakhs = 10, actions = [Buy { price_rupees: 10, quantity: 1, is_delivery: false, exchange: Bse }]
+cc 7a35e7ea2b030ff7b7ba67d5598d3f47be9b163cb20fd17531f7ab3d5e0b0268 # shrinks to opening_capital_lakhs = 10, actions = [Sell { price_rupees: 10, quantity: 1, cost_basis_rupees: 10, is_delivery: false, exchange: Bse, is_first_sell: false }]
+cc 1d2c0de9bdf7ed5a0bf624e9bd0b53727dbf4323f85da322b326b6542d156bf4 # shrinks to opening_capital_lakhs = 10, actions = [Sell { price_rupees: 10, quantity: 1, cost_basis_rupees: 10, is_delivery: true, exchange: Bse, is_first_sell: true }]
+cc cf323a8a78a656460d6d9e70905f10694e146b9bad45f52798ae688fa98fa124 # shrinks to opening_capital_lakhs = 10, actions = [Buy { price_rupees: 10, quantity: 1, is_delivery: false, exchange: Bse }]

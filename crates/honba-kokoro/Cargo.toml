@@ -1,0 +1,26 @@
+[package]
+name = "honba-kokoro"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Pure Domain Heart: OMS, FIFO tax-lots, double-entry ledger, DDD repository traits, and risk sizing"
+
+[lib]
+name = "honba_kokoro"
+
+[dependencies]
+honba-core = { path = "../../../honba-core" }
+honba-kokoro-oms = { path = "../honba-kokoro-oms" }
+honba-kokoro-portfolio = { path = "../honba-kokoro-portfolio" }
+honba-kokoro-ledger = { path = "../honba-kokoro-ledger" }
+rust_decimal.workspace = true
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror.workspace = true
+uuid = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

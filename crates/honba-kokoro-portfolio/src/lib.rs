@@ -380,14 +380,15 @@ pub struct SettlementEngine {
     calendar: ClearingCalendar,
 }
 
+impl Default for SettlementEngine {
+    fn default() -> Self {
+        Self::new(ClearingCalendar::new())
+    }
+}
+
 impl SettlementEngine {
     pub fn new(calendar: ClearingCalendar) -> Self {
         Self { calendar }
-    }
-
-    /// Create with default calendar.
-    pub fn default() -> Self {
-        Self::new(ClearingCalendar::new())
     }
 
     /// Generate settlement instructions from a fill.
@@ -620,7 +621,7 @@ pub fn adjust_for_bonus(pos: &mut HeldPosition, ratio_numerator: u64, ratio_deno
 pub fn record_dividend(pos: &HeldPosition, amount_per_share: i64) -> Money {
     // Dividend income = amount_per_share * quantity (in minor units)
     let dividend_income = Money {
-        amount: Decimal::from(amount_per_share) * Decimal::from(pos.quantity.0),
+        amount: Decimal::from(amount_per_share) * pos.quantity.0,
         currency: Currency::Inr,
     };
 
@@ -851,6 +852,12 @@ pub struct Marks {
     pub marks: HashMap<InstrumentId, Price>,
 }
 
+impl Default for Marks {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Marks {
     pub fn new() -> Self {
         Self {
@@ -885,7 +892,7 @@ pub fn value(
     let _total_realized_pnl = Money::inr(Decimal::from(0i64));
     let mut breakdown: BTreeMap<String, Money> = BTreeMap::new();
 
-    for (_account_name, account) in &state.accounts {
+    for account in state.accounts.values() {
         for pos in &account.positions {
             let market_price = marks
                 .marks
@@ -924,7 +931,7 @@ pub fn apply_fill(
     let entry_price_dec = pos.entry_price.0;
     let fill_price_dec = fill_price.0;
 
-    let realized_pnl = match pos.side {
+    match pos.side {
         PositionSide::Long => {
             if fill_qty_dec <= pos.quantity.0 {
                 // Partial fill: reduce quantity, compute PnL on the filled portion
@@ -978,9 +985,7 @@ pub fn apply_fill(
                 }
             }
         }
-    };
-
-    realized_pnl
+    }
 }
 
 /// Apply a fill to an account position.
@@ -1107,59 +1112,65 @@ pub fn settle_trades(
                     .iter()
                     .position(|p| p.instrument == trade.instrument);
 
-                if trade.side == PositionSide::Long && pos_idx.is_some() {
-                    // Reduce long position (someone is selling to this account's buyer)
-                    let _pos = &account.positions[pos_idx.unwrap()];
-                    let qty_change = -(trade.quantity as i64);
-                    *position_changes
-                        .entry(trade.instrument.symbol.to_string())
-                        .or_insert(0) += qty_change;
+                if let Some(idx) = pos_idx {
+                    if trade.side == PositionSide::Long {
+                        // Reduce long position (someone is selling to this account's buyer)
+                        let _pos = &account.positions[idx];
+                        let qty_change = -(trade.quantity as i64);
+                        *position_changes
+                            .entry(trade.instrument.symbol.to_string())
+                            .or_insert(0) += qty_change;
 
-                    // Adjust cash: add proceeds
-                    let proceeds = Money {
-                        amount: trade.price.0 * Decimal::from(trade.quantity),
-                        currency: Currency::Inr,
-                    };
-                    let cash_entry = cash_movements.entry(account_name.clone()).or_insert(Money {
-                        amount: Decimal::from(0i64),
-                        currency: Currency::Inr,
-                    });
-                    *cash_entry = Money {
-                        amount: cash_entry.amount + proceeds.amount,
-                        currency: Currency::Inr,
-                    };
+                        // Adjust cash: add proceeds
+                        let proceeds = Money {
+                            amount: trade.price.0 * Decimal::from(trade.quantity),
+                            currency: Currency::Inr,
+                        };
+                        let cash_entry =
+                            cash_movements.entry(account_name.clone()).or_insert(Money {
+                                amount: Decimal::from(0i64),
+                                currency: Currency::Inr,
+                            });
+                        *cash_entry = Money {
+                            amount: cash_entry.amount + proceeds.amount,
+                            currency: Currency::Inr,
+                        };
 
-                    // Reduce position quantity
-                    if let Some(p) = account.positions.get_mut(pos_idx.unwrap()) {
-                        p.quantity = Quantity::new(p.quantity.0 - Decimal::from(trade.quantity));
-                    }
-                } else if trade.side == PositionSide::Short && pos_idx.is_some() {
-                    // Cover short position
-                    let _pos = &account.positions[pos_idx.unwrap()];
-                    let qty_change = trade.quantity as i64;
-                    *position_changes
-                        .entry(trade.instrument.symbol.to_string())
-                        .or_insert(0) += qty_change;
+                        // Reduce position quantity
+                        if let Some(p) = account.positions.get_mut(idx) {
+                            p.quantity =
+                                Quantity::new(p.quantity.0 - Decimal::from(trade.quantity));
+                        }
+                    } else if trade.side == PositionSide::Short {
+                        // Cover short position
+                        let _pos = &account.positions[idx];
+                        let qty_change = trade.quantity as i64;
+                        *position_changes
+                            .entry(trade.instrument.symbol.to_string())
+                            .or_insert(0) += qty_change;
 
-                    // Adjust cash: subtract buy-in cost
-                    let cost = Money {
-                        amount: trade.price.0 * Decimal::from(trade.quantity),
-                        currency: Currency::Inr,
-                    };
-                    let cash_entry = cash_movements.entry(account_name.clone()).or_insert(Money {
-                        amount: Decimal::from(0i64),
-                        currency: Currency::Inr,
-                    });
-                    *cash_entry = Money {
-                        amount: cash_entry.amount - cost.amount,
-                        currency: Currency::Inr,
-                    };
+                        // Adjust cash: subtract buy-in cost
+                        let cost = Money {
+                            amount: trade.price.0 * Decimal::from(trade.quantity),
+                            currency: Currency::Inr,
+                        };
+                        let cash_entry =
+                            cash_movements.entry(account_name.clone()).or_insert(Money {
+                                amount: Decimal::from(0i64),
+                                currency: Currency::Inr,
+                            });
+                        *cash_entry = Money {
+                            amount: cash_entry.amount - cost.amount,
+                            currency: Currency::Inr,
+                        };
 
-                    // Remove or reduce short position
-                    if let Some(p) = account.positions.get_mut(pos_idx.unwrap()) {
-                        p.quantity = Quantity::new(p.quantity.0 - Decimal::from(trade.quantity));
-                        if p.quantity.0 <= Decimal::ZERO {
-                            account.positions.remove(pos_idx.unwrap());
+                        // Remove or reduce short position
+                        if let Some(p) = account.positions.get_mut(idx) {
+                            p.quantity =
+                                Quantity::new(p.quantity.0 - Decimal::from(trade.quantity));
+                            if p.quantity.0 <= Decimal::ZERO {
+                                account.positions.remove(idx);
+                            }
                         }
                     }
                 } else {
@@ -1395,7 +1406,7 @@ mod tests {
 
         // Fill 4 units at 2015 - should reduce position to 6 and realize PnL
         let pnl = apply_fill_to_account(
-            &mut state.accounts.get_mut("acct1").unwrap(),
+            state.accounts.get_mut("acct1").unwrap(),
             id,
             PositionSide::Long,
             4,
@@ -1425,7 +1436,7 @@ mod tests {
 
         // Fill 10 units at 2050 - should close position fully and realize PnL
         let pnl = apply_fill_to_account(
-            &mut state.accounts.get_mut("acct1").unwrap(),
+            state.accounts.get_mut("acct1").unwrap(),
             id,
             PositionSide::Long,
             10,
@@ -2040,7 +2051,11 @@ mod tests {
         );
 
         // Process settlement on settle date
-        let result = engine.process_settlements(&mut holdings, &[instr.clone()], instr.settle_date);
+        let result = engine.process_settlements(
+            &mut holdings,
+            std::slice::from_ref(&instr),
+            instr.settle_date,
+        );
 
         assert!(result.is_successful());
         assert_eq!(result.settled_count, 1);
@@ -2076,7 +2091,8 @@ mod tests {
 
         // Process settlement BEFORE settle date - should not settle
         let before_settle = instr.settle_date - chrono::Duration::days(1);
-        let result = engine.process_settlements(&mut holdings, &[instr.clone()], before_settle);
+        let result =
+            engine.process_settlements(&mut holdings, std::slice::from_ref(&instr), before_settle);
 
         assert_eq!(result.settled_count, 0);
         assert_eq!(result.failed_count, 0);

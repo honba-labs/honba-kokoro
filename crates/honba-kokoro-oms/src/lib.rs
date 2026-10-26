@@ -282,6 +282,12 @@ pub struct OrderStateMachine {
     cumulative_fills: BTreeMap<String, u64>,
 }
 
+impl Default for OrderStateMachine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OrderStateMachine {
     /// Create a new order state machine.
     pub fn new() -> Self {
@@ -456,6 +462,105 @@ pub struct CostBasisLot {
     pub side: OrderSide,
 }
 
+/// Validate order parameters.
+pub fn validate_order_params(qty: u64, pnl: Decimal, max_loss: Decimal) -> Result<(), String> {
+    if qty > 1000000 {
+        return Err("Quantity exceeds maximum per order".to_string());
+    }
+    if pnl < -max_loss {
+        return Err("Daily loss limit exceeded".to_string());
+    }
+    Ok(())
+}
+
+/// Submit an order to the broker after risk validation.
+pub async fn submit_order(
+    qty: u64,
+    side: OrderSide,
+    ot: OrderType,
+    tif: TimeInForce,
+    lp: Option<Price>,
+) -> Result<OrderAck, OrderError> {
+    if qty > 1000000 {
+        return Err(OrderError::QuantityExceedsLimit(qty));
+    }
+    let ack = _build_order_ack_inner(qty, side, ot, tif, lp);
+    Ok(ack)
+}
+
+/// Cancel an existing order
+pub async fn cancel_order(oid: String) -> Result<OrderAck, OrderError> {
+    Ok(OrderAck {
+        order_id: oid,
+        client_order_id: format!("CLIENT_{}", Uuid::new_v4()),
+        instrument: InstrumentId::new(Exchange::Nse, "UNKNOWN"),
+        side: OrderSide::Long,
+        quantity: 0,
+        order_type: OrderType::Market,
+        time_in_force: TimeInForce::GTC,
+        limit_price: None,
+        status: OrderStatus::Cancelled,
+        created_at: Utc::now(),
+        filled_quantity: 0,
+        average_fill_price: None,
+        commission: Money {
+            amount: Decimal::from(0i64),
+            currency: Currency::Inr,
+        },
+        fees: Money {
+            amount: Decimal::from(0i64),
+            currency: Currency::Inr,
+        },
+    })
+}
+
+/// Process a fill report from the broker
+pub fn process_fill_report(fq: u64, commission: Money, _fees: Money) -> Result<(), OrderError> {
+    if fq == 0 {
+        return Err(OrderError::InvalidParameters);
+    }
+    if commission.amount < Decimal::from(0i64) {
+        return Err(OrderError::InvalidParameters);
+    }
+    Ok(())
+}
+
+/// Core order construction logic - returns OrderAck directly.
+fn _build_order_ack_inner(
+    qty: u64,
+    side: OrderSide,
+    ot: OrderType,
+    tif: TimeInForce,
+    lp: Option<Price>,
+) -> OrderAck {
+    let order_id = format!("ORDER_{}", Uuid::new_v4());
+    let client_order_id = format!("CLIENT_{}", Uuid::new_v4());
+    let created_at = Utc::now();
+
+    OrderAck {
+        order_id,
+        client_order_id,
+        instrument: InstrumentId::new(Exchange::Nse, "UNKNOWN"),
+        side,
+        quantity: qty,
+        order_type: ot,
+        time_in_force: tif,
+        limit_price: lp,
+        status: OrderStatus::Pending,
+        created_at,
+        filled_quantity: 0,
+        average_fill_price: None,
+        commission: Money {
+            amount: Decimal::from(0i64),
+            currency: Currency::Inr,
+        },
+        fees: Money {
+            amount: Decimal::from(0i64),
+            currency: Currency::Inr,
+        },
+    }
+}
+
 // ———————————————————————————————————————————————————————————————————————
 
 // ———————————————————————————————————————————————————————————————————————
@@ -615,9 +720,7 @@ mod tests {
         // (In a full proptest, we'd vary the quantities; here we verify basic boundedness)
         let (state, fully_filled) = oms.process_fill("clOrd4", 5);
         assert!(
-            fully_filled == false
-                || state == OrderState::PartiallyFilled
-                || state == OrderState::Filled
+            !fully_filled || state == OrderState::PartiallyFilled || state == OrderState::Filled
         );
         let cumulative = oms.get_cumulative_fill("clOrd4");
         assert_eq!(cumulative, Some(5));
@@ -658,104 +761,5 @@ mod tests {
             let state = oms.get_state(cid);
             assert!(state.is_some(), "Order {} should be trackable", cid);
         }
-    }
-}
-
-/// Validate order parameters.
-pub fn validate_order_params(qty: u64, pnl: Decimal, max_loss: Decimal) -> Result<(), String> {
-    if qty > 1000000 {
-        return Err("Quantity exceeds maximum per order".to_string());
-    }
-    if pnl < -max_loss {
-        return Err("Daily loss limit exceeded".to_string());
-    }
-    Ok(())
-}
-
-/// Submit an order to the broker after risk validation.
-pub async fn submit_order(
-    qty: u64,
-    side: OrderSide,
-    ot: OrderType,
-    tif: TimeInForce,
-    lp: Option<Price>,
-) -> Result<OrderAck, OrderError> {
-    if qty > 1000000 {
-        return Err(OrderError::QuantityExceedsLimit(qty));
-    }
-    let ack = _build_order_ack_inner(qty, side, ot, tif, lp);
-    Ok(ack)
-}
-
-/// Cancel an existing order
-pub async fn cancel_order(oid: String) -> Result<OrderAck, OrderError> {
-    Ok(OrderAck {
-        order_id: oid,
-        client_order_id: format!("CLIENT_{}", Uuid::new_v4()),
-        instrument: InstrumentId::new(Exchange::Nse, "UNKNOWN"),
-        side: OrderSide::Long,
-        quantity: 0,
-        order_type: OrderType::Market,
-        time_in_force: TimeInForce::GTC,
-        limit_price: None,
-        status: OrderStatus::Cancelled,
-        created_at: Utc::now(),
-        filled_quantity: 0,
-        average_fill_price: None,
-        commission: Money {
-            amount: Decimal::from(0i64),
-            currency: Currency::Inr,
-        },
-        fees: Money {
-            amount: Decimal::from(0i64),
-            currency: Currency::Inr,
-        },
-    })
-}
-
-/// Process a fill report from the broker
-pub fn process_fill_report(fq: u64, commission: Money, _fees: Money) -> Result<(), OrderError> {
-    if fq == 0 {
-        return Err(OrderError::InvalidParameters);
-    }
-    if commission.amount < Decimal::from(0i64) {
-        return Err(OrderError::InvalidParameters);
-    }
-    Ok(())
-}
-
-/// Core order construction logic - returns OrderAck directly.
-fn _build_order_ack_inner(
-    qty: u64,
-    side: OrderSide,
-    ot: OrderType,
-    tif: TimeInForce,
-    lp: Option<Price>,
-) -> OrderAck {
-    let order_id = format!("ORDER_{}", Uuid::new_v4());
-    let client_order_id = format!("CLIENT_{}", Uuid::new_v4());
-    let created_at = Utc::now();
-
-    OrderAck {
-        order_id,
-        client_order_id,
-        instrument: InstrumentId::new(Exchange::Nse, "UNKNOWN"),
-        side,
-        quantity: qty,
-        order_type: ot,
-        time_in_force: tif,
-        limit_price: lp,
-        status: OrderStatus::Pending,
-        created_at,
-        filled_quantity: 0,
-        average_fill_price: None,
-        commission: Money {
-            amount: Decimal::from(0i64),
-            currency: Currency::Inr,
-        },
-        fees: Money {
-            amount: Decimal::from(0i64),
-            currency: Currency::Inr,
-        },
     }
 }

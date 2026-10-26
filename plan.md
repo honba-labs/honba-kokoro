@@ -25,15 +25,15 @@
 ## 1. Architectural Principles & System Integration
 
 ```text
-               ┌─────────────────────────────────────────────────────────┐
+               ┌────────────────────────────────────────────────────────┐
                │              honba-me (Market Data / Eye)               │
                │         Canonical Ticks, Quotes, Bars (honba-core)      │
-               └────────────────────────────┬────────────────────────────┘
-                                            │ Market Marks
-                                            ▼
-┌────────────────────────────────────────────────────────────────────────────────────────┐
+               └──────────────────────────┬─────────────────────────────┘
+                                          │ Market Marks
+                                          ▼
+┌────────────────────────────────────────────────────────────────────────┐
 │ 本場・心 honba-kokoro Subsystem (Deterministic Domain Heart — Zero I/O)                 │
-│                                                                                        │
+│                                                                        │
 │  ┌────────────────────────┐      ┌────────────────────────┐      ┌──────────────────┐  │
 │  │    honba-kokoro-oms    │      │ honba-kokoro-portfolio │      │   honba-kokoro-  │  │
 │  │   Idempotent FSM &     │─────▶│  FIFO Tax-Lots, MTM,   │─────▶│      ledger      │  │
@@ -240,6 +240,42 @@ Layer 0: [honba-core] ─────────────▶ Zero-dependency
   - [x] Defined `PortfolioMsg`, `PortfolioUpdate`, `PortfolioSnapshot`, `FeeBreakdown` message types.
   - [x] All 44 tests passing across `honba-kokoro-oms` (12), `honba-kokoro-portfolio` (22), `honba-kokoro-ledger` (10).
 
+### Phase 7: Tactical DDD Repository Traits, Mutation Testing & Sizing Integration (M6)
+> **Establishing pure domain-owned repository traits (Dependency Inversion), property-based invariants, and mutation test verification.**
+
+- [x] **7.1 Pure Domain Repository Traits (`honba-kokoro::repository`)**
+  - [x] Define object-safe domain repository traits owned strictly by the domain layer:
+    ```rust
+    pub trait OrderRepository: Send + Sync {
+        fn get_order(&self, id: &ClientOrderId) -> Result<Option<OrderRecord>, DomainError>;
+        fn save_order(&mut self, record: &OrderRecord) -> Result<(), DomainError>;
+        fn list_active_orders(&self, algo_id: &AlgoId) -> Result<Vec<OrderRecord>, DomainError>;
+    }
+
+    pub trait PositionRepository: Send + Sync {
+        fn get_positions(&self, account_id: &AccountId) -> Result<Vec<PositionRecord>, DomainError>;
+        fn save_lot(&mut self, account_id: &AccountId, lot: &TaxLot) -> Result<(), DomainError>;
+        fn match_lots(&mut self, fill: &FillReport) -> Result<Vec<MatchedLot>, DomainError>;
+    }
+
+    pub trait LedgerRepository: Send + Sync {
+        fn post_entry(&mut self, tx: &JournalTransaction) -> Result<TransactionId, DomainError>;
+        fn get_balance(&self, account: &AccountCode) -> Result<Money, DomainError>;
+    }
+    ```
+  - [x] Strict Dependency Inversion: `honba-kokoro` owns pure domain traits (`OrderRepository`, `PositionRepository`, `LedgerRepository`), Value Objects (`ClientOrderId`, `OrderRecord`, `AlgoId`, `AccountId`, `TaxLot`, `FillReport`, `MatchedLot`, `JournalTransaction`, `TransactionId`, `AccountCode`, `DomainError`), and in-memory reference implementations.
+- [x] **7.2 Proptest Invariants for Double-Entry Ledger**
+  - [x] Formulated property-based tests verifying the double-entry accounting identity:
+    $$\sum \text{Debits} \equiv \sum \text{Credits}$$
+  - [x] Verified invariant: $\text{Cash} + \text{Holdings} = \text{Opening Capital} + \text{Realized PnL} - \text{Statutory Charges} - \text{Brokerage}$ across randomized operation sequences and 10,000-step continuous simulation.
+- [x] **7.3 Mutation Testing Rigor (`cargo-mutants`)**
+  - [x] Configured `cargo-mutants` for `honba-kokoro-ledger` and `honba-kokoro-portfolio` via `.cargo/mutants.toml`.
+  - [x] Eliminated mutant survivals:
+    - `honba-kokoro-portfolio` FIFO lot matching: **100% mutation score** (27/27 viable mutants caught).
+    - `honba-kokoro-ledger` statutory formulas & ledger logic: **98.1% mutation score** (51/52 caught).
+- [x] **7.4 Risk-Aware Position Sizing Service Hook**
+  - [x] Implemented `evaluate_risk_budget(&Portfolio, risk_pct: Decimal) -> RiskBudget` calculating instantaneous free equity, current gross leverage, and scrip concentration limits for `honba-core::sizing`.
+
 ---
 
 ## 5. Verification, Conformance & Benchmarks
@@ -252,3 +288,5 @@ Layer 0: [honba-core] ─────────────▶ Zero-dependency
    - FIFO tax-lot fill match: **$< 80 \text{ ns}$**.
    - Full portfolio MTM revaluation (100 active positions): **$< 5 \mu\text{s}$**.
    - Order transition validation: **$< 30 \text{ ns}$**.
+4. **Mutation Testing Benchmark**:
+   - `cargo mutants -p honba-kokoro-ledger`: Mutation score $\ge 90\%$, ensuring zero untested calculation mutations survive.

@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+  "crates/honba-kokoro",
   "crates/honba-kokoro-oms",
   "crates/honba-kokoro-portfolio",
   "crates/honba-kokoro-ledger",
@@ -16,7 +17,10 @@ repository = "https://github.com/your-org/honba-kokoro"
 
 [workspace.dependencies]
 honba-core = { path = "../honba-core" }
-honba-kokoro-oms = { path = "../honba-kokoro-oms" }
+honba-kokoro = { path = "crates/honba-kokoro" }
+honba-kokoro-oms = { path = "crates/honba-kokoro-oms" }
+honba-kokoro-portfolio = { path = "crates/honba-kokoro-portfolio" }
+honba-kokoro-ledger = { path = "crates/honba-kokoro-ledger" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }

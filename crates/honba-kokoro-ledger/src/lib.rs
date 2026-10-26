@@ -62,6 +62,294 @@ pub fn post_transaction(transaction: &Transaction) -> Result<(), LedgerError> {
     Ok(())
 }
 
+/// Canonical Double-Entry General Ledger.
+/// Enforces debit-credit equilibrium for every transaction and maintains
+/// balance sheet integrity across the full Indian equity trading lifecycle.
+#[derive(Debug, Clone, Default)]
+pub struct DoubleEntryLedger {
+    pub debit_balances: BTreeMap<String, Decimal>,
+    pub credit_balances: BTreeMap<String, Decimal>,
+    pub transactions: Vec<Transaction>,
+}
+
+impl DoubleEntryLedger {
+    /// Create a new empty double-entry ledger.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Post a balanced transaction to the ledger.
+    /// Returns `Ok(())` if debits match credits, or `Err(LedgerError::InvalidAmount)` if unbalanced.
+    pub fn post(&mut self, transaction: Transaction) -> Result<(), LedgerError> {
+        let total_debits: Decimal = transaction.debits.values().copied().sum();
+        let total_credits: Decimal = transaction.credits.values().copied().sum();
+
+        if total_debits != total_credits {
+            return Err(LedgerError::InvalidAmount);
+        }
+
+        // Validate non-negative amounts (each leg must be > 0)
+        for amount in transaction.debits.values() {
+            if *amount <= Decimal::ZERO {
+                return Err(LedgerError::InvalidAmount);
+            }
+        }
+        for amount in transaction.credits.values() {
+            if *amount <= Decimal::ZERO {
+                return Err(LedgerError::InvalidAmount);
+            }
+        }
+
+        for (account, amount) in &transaction.debits {
+            *self.debit_balances.entry(account.clone()).or_default() += *amount;
+        }
+        for (account, amount) in &transaction.credits {
+            *self.credit_balances.entry(account.clone()).or_default() += *amount;
+        }
+
+        self.transactions.push(transaction);
+        Ok(())
+    }
+
+    /// Total sum of all debits posted across all accounts.
+    pub fn total_debits(&self) -> Decimal {
+        self.debit_balances.values().copied().sum()
+    }
+
+    /// Total sum of all credits posted across all accounts.
+    pub fn total_credits(&self) -> Decimal {
+        self.credit_balances.values().copied().sum()
+    }
+
+    /// Net debit balance for an account (Debits - Credits).
+    pub fn net_debit_balance(&self, account: &str) -> Decimal {
+        let debits = self
+            .debit_balances
+            .get(account)
+            .copied()
+            .unwrap_or(Decimal::ZERO);
+        let credits = self
+            .credit_balances
+            .get(account)
+            .copied()
+            .unwrap_or(Decimal::ZERO);
+        debits - credits
+    }
+
+    /// Net credit balance for an account (Credits - Debits).
+    pub fn net_credit_balance(&self, account: &str) -> Decimal {
+        let debits = self
+            .debit_balances
+            .get(account)
+            .copied()
+            .unwrap_or(Decimal::ZERO);
+        let credits = self
+            .credit_balances
+            .get(account)
+            .copied()
+            .unwrap_or(Decimal::ZERO);
+        credits - debits
+    }
+
+    /// Current cash balance at broker (Assets:Cash:BrokerAccount or CashAtBroker).
+    pub fn cash_balance(&self) -> Decimal {
+        self.net_debit_balance("Assets:Cash:BrokerAccount") + self.net_debit_balance("CashAtBroker")
+    }
+
+    /// Current holdings at acquisition cost (Assets:Holdings:EquityDelivery or HoldingsEquityDelivery).
+    pub fn holdings_balance(&self) -> Decimal {
+        self.net_debit_balance("Assets:Holdings:EquityDelivery")
+            + self.net_debit_balance("HoldingsEquityDelivery")
+    }
+
+    /// Opening equity / capital deposited (Equity:OpeningCapital or OpeningCapital).
+    pub fn opening_capital(&self) -> Decimal {
+        self.net_credit_balance("Equity:OpeningCapital") + self.net_credit_balance("OpeningCapital")
+    }
+
+    /// Realized PnL from trades (Income:RealizedPnL or IncomeRealizedPnL).
+    pub fn realized_pnl(&self) -> Decimal {
+        self.net_credit_balance("Income:RealizedPnL") + self.net_credit_balance("IncomeRealizedPnL")
+    }
+
+    /// Brokerage incurred (Expenses:Brokerage or ExpensesBrokerage).
+    pub fn brokerage(&self) -> Decimal {
+        self.net_debit_balance("Expenses:Brokerage") + self.net_debit_balance("ExpensesBrokerage")
+    }
+
+    /// Statutory charges incurred (STT + Stamp Duty + Exchange Fees + SEBI Fees + GST + DP Charges).
+    pub fn statutory_charges(&self) -> Decimal {
+        self.net_debit_balance("Expenses:Taxes:STT")
+            + self.net_debit_balance("ExpensesTaxesSTT")
+            + self.net_debit_balance("Expenses:Taxes:StampDuty")
+            + self.net_debit_balance("ExpensesTaxesStampDuty")
+            + self.net_debit_balance("Expenses:ExchangeFees")
+            + self.net_debit_balance("ExpensesExchangeFees")
+            + self.net_debit_balance("Expenses:SEBIFees")
+            + self.net_debit_balance("ExpensesSEBIFees")
+            + self.net_debit_balance("Expenses:Taxes:GST")
+            + self.net_debit_balance("ExpensesTaxesGST")
+            + self.net_debit_balance("Expenses:DPCharges")
+            + self.net_debit_balance("ExpensesDPCharges")
+    }
+
+    /// Verifies the fundamental balance sheet accounting identity:
+    /// Cash + Holdings == Opening Capital + Realized PnL - Statutory Charges - Brokerage
+    pub fn verify_accounting_identity(&self) -> Result<(), (Decimal, Decimal)> {
+        let lhs = self.cash_balance() + self.holdings_balance();
+        let rhs = self.opening_capital() + self.realized_pnl()
+            - self.statutory_charges()
+            - self.brokerage();
+        if lhs == rhs { Ok(()) } else { Err((lhs, rhs)) }
+    }
+
+    /// Verifies the universal double-entry identity:
+    /// sum(Debits) == sum(Credits)
+    pub fn verify_double_entry_balance(&self) -> bool {
+        self.total_debits() == self.total_credits()
+    }
+
+    /// Helper to record opening capital deposit.
+    pub fn record_opening_capital(
+        &mut self,
+        tx_id: &str,
+        timestamp: DateTime<Utc>,
+        amount: Decimal,
+    ) -> Result<(), LedgerError> {
+        let mut debits = BTreeMap::new();
+        debits.insert("Assets:Cash:BrokerAccount".to_string(), amount);
+        let mut credits = BTreeMap::new();
+        credits.insert("Equity:OpeningCapital".to_string(), amount);
+
+        self.post(Transaction {
+            id: tx_id.to_string(),
+            timestamp,
+            debits,
+            credits,
+            description: "Opening capital deposit".to_string(),
+        })
+    }
+
+    /// Helper to record an equity buy execution with statutory charges.
+    pub fn record_buy(
+        &mut self,
+        tx_id: &str,
+        timestamp: DateTime<Utc>,
+        notional: Decimal,
+        charges: &TaxBreakdown,
+    ) -> Result<(), LedgerError> {
+        let total_charges = charges.total();
+        let total_cash = notional + total_charges;
+
+        let mut debits = BTreeMap::new();
+        debits.insert("Assets:Holdings:EquityDelivery".to_string(), notional);
+        if charges.brokerage > Decimal::ZERO {
+            debits.insert("Expenses:Brokerage".to_string(), charges.brokerage);
+        }
+        if charges.stt > Decimal::ZERO {
+            debits.insert("Expenses:Taxes:STT".to_string(), charges.stt);
+        }
+        if charges.stamp_duty > Decimal::ZERO {
+            debits.insert("Expenses:Taxes:StampDuty".to_string(), charges.stamp_duty);
+        }
+        if charges.exchange_turnover > Decimal::ZERO {
+            debits.insert(
+                "Expenses:ExchangeFees".to_string(),
+                charges.exchange_turnover,
+            );
+        }
+        if charges.sebi_turnover > Decimal::ZERO {
+            debits.insert("Expenses:SEBIFees".to_string(), charges.sebi_turnover);
+        }
+        if charges.gst > Decimal::ZERO {
+            debits.insert("Expenses:Taxes:GST".to_string(), charges.gst);
+        }
+        if charges.dp_charge > Decimal::ZERO {
+            debits.insert("Expenses:DPCharges".to_string(), charges.dp_charge);
+        }
+
+        let mut credits = BTreeMap::new();
+        credits.insert("Assets:Cash:BrokerAccount".to_string(), total_cash);
+
+        self.post(Transaction {
+            id: tx_id.to_string(),
+            timestamp,
+            debits,
+            credits,
+            description: "Equity buy execution".to_string(),
+        })
+    }
+
+    /// Helper to record an equity sell execution with cost-basis relief, realized PnL, and statutory charges.
+    pub fn record_sell(
+        &mut self,
+        tx_id: &str,
+        timestamp: DateTime<Utc>,
+        proceeds: Decimal,
+        cost_basis: Decimal,
+        charges: &TaxBreakdown,
+    ) -> Result<(), LedgerError> {
+        let total_charges = charges.total();
+        let pnl = proceeds - cost_basis;
+
+        let mut debits = BTreeMap::new();
+        let mut credits = BTreeMap::new();
+
+        if proceeds >= total_charges {
+            let cash_received = proceeds - total_charges;
+            if cash_received > Decimal::ZERO {
+                debits.insert("Assets:Cash:BrokerAccount".to_string(), cash_received);
+            }
+        } else {
+            let cash_deficit = total_charges - proceeds;
+            credits.insert("Assets:Cash:BrokerAccount".to_string(), cash_deficit);
+        }
+        if charges.brokerage > Decimal::ZERO {
+            debits.insert("Expenses:Brokerage".to_string(), charges.brokerage);
+        }
+        if charges.stt > Decimal::ZERO {
+            debits.insert("Expenses:Taxes:STT".to_string(), charges.stt);
+        }
+        if charges.stamp_duty > Decimal::ZERO {
+            debits.insert("Expenses:Taxes:StampDuty".to_string(), charges.stamp_duty);
+        }
+        if charges.exchange_turnover > Decimal::ZERO {
+            debits.insert(
+                "Expenses:ExchangeFees".to_string(),
+                charges.exchange_turnover,
+            );
+        }
+        if charges.sebi_turnover > Decimal::ZERO {
+            debits.insert("Expenses:SEBIFees".to_string(), charges.sebi_turnover);
+        }
+        if charges.gst > Decimal::ZERO {
+            debits.insert("Expenses:Taxes:GST".to_string(), charges.gst);
+        }
+        if charges.dp_charge > Decimal::ZERO {
+            debits.insert("Expenses:DPCharges".to_string(), charges.dp_charge);
+        }
+
+        credits.insert("Assets:Holdings:EquityDelivery".to_string(), cost_basis);
+
+        if pnl >= Decimal::ZERO {
+            if pnl > Decimal::ZERO {
+                credits.insert("Income:RealizedPnL".to_string(), pnl);
+            }
+        } else {
+            let loss = -pnl;
+            debits.insert("Income:RealizedPnL".to_string(), loss);
+        }
+
+        self.post(Transaction {
+            id: tx_id.to_string(),
+            timestamp,
+            debits,
+            credits,
+            description: "Equity sell execution".to_string(),
+        })
+    }
+}
+
 /// Indian statutory tax calculator.
 /// Computes STT, GST, Stamp Duty, SEBI fees, and DP charges per SEBI
 /// and Finance Act rules for equity, F&O, and commodity derivatives.
@@ -76,8 +364,7 @@ impl TaxCalculator {
         };
 
         let notional = price * quantity;
-        let stt = (notional * rate).floor();
-        stt
+        (notional * rate).floor()
     }
 
     #[allow(non_snake_case)]

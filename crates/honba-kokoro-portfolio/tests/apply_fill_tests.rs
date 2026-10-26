@@ -13,7 +13,7 @@
 //! closed while opening a new leg on the opposite side for the remainder.
 
 use honba_core::{Exchange, InstrumentId};
-use honba_portfolio::{apply_fill, HeldPosition, PositionSide, Price, Quantity};
+use honba_portfolio::{HeldPosition, PositionSide, Price, Quantity, apply_fill};
 use rust_decimal::Decimal;
 
 fn reliance() -> InstrumentId {

@@ -85,6 +85,12 @@ pub struct GoldenTestRunner {
     tolerance_paise: Decimal,
 }
 
+impl Default for GoldenTestRunner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GoldenTestRunner {
     pub fn new() -> Self {
         Self {
@@ -468,7 +474,7 @@ impl GoldenTestReport {
 pub fn generate_sample_csv(_broker: &str, count: usize) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
 
-    wtr.write_record(&[
+    wtr.write_record([
         "trade_id",
         "trade_date",
         "symbol",
@@ -529,7 +535,7 @@ pub fn generate_sample_csv(_broker: &str, count: usize) -> String {
         let exchange_str = (if i % 3 == 0 { "NSE" } else { "BSE" }).to_string();
         let side_str = (if i % 2 == 0 { "BUY" } else { "SELL" }).to_string();
 
-        wtr.write_record(&[
+        wtr.write_record([
             &format!("TRD{:08}", i),
             &chrono::Utc::now().to_rfc3339(),
             &symbol_str,

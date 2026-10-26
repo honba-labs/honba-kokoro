@@ -143,7 +143,11 @@ fn test_stamp_duty_is_zero_on_sell_for_all_products() {
         ProductType::Options,
     ] {
         let sd = TaxCalculator::stamp_duty_charge(TradeSide::Sell, product, dec!(100_000.00));
-        assert_eq!(sd, dec!(0.00), "product {product:?} should have zero stamp duty on sell");
+        assert_eq!(
+            sd,
+            dec!(0.00),
+            "product {product:?} should have zero stamp duty on sell"
+        );
     }
 }
 

@@ -80,7 +80,7 @@ fn portfolio_mtm_valuation_10_positions(bencher: Bencher) {
 
     let mut account = AccountState::new(Currency::Inr, vec![]);
     for i in 0..10 {
-        let id = InstrumentId::new(Exchange::Nse, &format!("STOCK{}", i));
+        let id = InstrumentId::new(Exchange::Nse, format!("STOCK{}", i));
         let pos = HeldPosition::new(
             id.clone(),
             PortfolioPositionSide::Long,
@@ -128,7 +128,7 @@ fn portfolio_mtm_valuation_100_positions(bencher: Bencher) {
 
     let mut account = AccountState::new(Currency::Inr, vec![]);
     for i in 0..100 {
-        let id = InstrumentId::new(Exchange::Nse, &format!("STOCK{}", i));
+        let id = InstrumentId::new(Exchange::Nse, format!("STOCK{}", i));
         let pos = HeldPosition::new(
             id.clone(),
             PortfolioPositionSide::Long,
