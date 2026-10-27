@@ -6,6 +6,7 @@ members = [
   "crates/honba-kokoro-portfolio",
   "crates/honba-kokoro-ledger",
 ]
+default-members = []
 exclude = ["benches"]
 
 [workspace.package]
