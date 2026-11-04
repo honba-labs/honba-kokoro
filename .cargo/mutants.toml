@@ -1,0 +1,12 @@
+# cargo-mutants configuration for honba-kokoro workspace
+# Focus mutation testing strictly on active domain formulas, accounting rules, and FIFO lot matching.
+
+exclude_globs = [
+    "**/golden_tests/**",
+    "**/benches/**",
+    "**/benches.rs",
+    "**/engine.rs",
+    "**/marks.rs",
+    "**/state.rs",
+    "**/error.rs",
+]
