@@ -42,6 +42,19 @@ divan = "0.1"
 
 [profile.dev]
 opt-level = 1
+debug = false
+strip = "debuginfo"
+
+
+[profile.test]
+opt-level = 1
+debug = false
+strip = "debuginfo"
+
+[profile.dbg]
+inherits = "dev"
+debug = 2
+strip = "none"
 
 [profile.release]
 opt-level = 3
